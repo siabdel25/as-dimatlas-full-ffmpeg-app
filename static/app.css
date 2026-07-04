@@ -291,6 +291,28 @@ h1, h2, h3, .vc-display {
 .vc-file .vc-fav.on { color: var(--vc-accent); }
 .vc-file .vc-fav:hover { color: var(--vc-accent); }
 
+/* ============ medley ============ */
+
+.vc-clip { cursor: default; }
+.vc-clip .btn { flex-shrink: 0; padding: 0.15rem 0.45rem; }
+
+.vc-transition-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.15rem 0.5rem 0.15rem 2rem;
+  color: var(--vc-ink-2);
+  font-size: 0.85rem;
+}
+.vc-transition-row i { color: var(--vc-accent); }
+
+.vc-trim-panel {
+  border: 1px solid var(--vc-accent);
+  border-radius: 0.45rem;
+  padding: 0.9rem;
+  background: var(--vc-panel-2);
+}
+
 /* ============ bibliothèque : vignettes ============ */
 
 .vc-poster {

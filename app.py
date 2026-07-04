@@ -788,6 +788,150 @@ def effet_video():
     return jsonify({"task_id": task_id})
 
 
+# ------------------------------------------------------------------ medley
+
+TRANSITIONS_MEDLEY = {
+    "fade": "Fondu enchaîné",
+    "slideleft": "Glissement ←",
+    "slideright": "Glissement →",
+    "wipeleft": "Volet ←",
+    "wiperight": "Volet →",
+    "circleopen": "Cercle ouvrant",
+    "circleclose": "Cercle fermant",
+    "radial": "Radial",
+    "dissolve": "Dissolution",
+}
+RESOLUTIONS_MEDLEY = {"480p": (854, 480), "720p": (1280, 720),
+                      "1080p": (1920, 1080)}
+DEBITS_MEDLEY = {  # kb/s vidéo par résolution ; "auto" = CRF 22
+    "low": {"480p": 800, "720p": 1500, "1080p": 3000},
+    "medium": {"480p": 1500, "720p": 3000, "1080p": 6000},
+    "high": {"480p": 2500, "720p": 5000, "1080p": 10000},
+}
+APERCU_MEDLEY = "medley_preview.mp4"        # dans MINIATURES_DIR, écrasé
+
+
+@app.get("/api/medley/transitions")
+def transitions_medley():
+    return jsonify([{"id": k, "label": v} for k, v in TRANSITIONS_MEDLEY.items()])
+
+
+@app.get("/api/medley/preview")
+def apercu_medley():
+    if not os.path.isfile(os.path.join(MINIATURES_DIR, APERCU_MEDLEY)):
+        abort(404)
+    return send_from_directory(MINIATURES_DIR, APERCU_MEDLEY, conditional=True)
+
+
+@app.post("/api/medley")
+def creer_medley():
+    data = request.json or {}
+    apercu = bool(data.get("preview"))
+    clips_in = data.get("clips") or []
+    trans_in = data.get("transitions") or []
+    resolution = data.get("resolution", "720p")
+    debit = data.get("bitrate", "auto")
+    if not 2 <= len(clips_in) <= 12:
+        return jsonify({"error": "Le medley demande de 2 à 12 clips"}), 400
+    if len(trans_in) != len(clips_in) - 1:
+        return jsonify({"error": "Il faut une transition entre chaque clip"}), 400
+    if resolution not in RESOLUTIONS_MEDLEY or \
+            debit not in ("auto", *DEBITS_MEDLEY):
+        return jsonify({"error": "Résolution ou débit invalide"}), 400
+
+    clips = []
+    for c in clips_in:
+        chemin = fichier_video_valide(c.get("file", ""))
+        if not chemin:
+            return jsonify({"error": f"Fichier introuvable : {c.get('file')}"}), 400
+        infos = infos_flux(chemin)
+        duree = duree_video(chemin)
+        if not infos or not duree:
+            return jsonify({"error": f"Vidéo illisible : {c.get('file')}"}), 400
+        try:
+            t1 = max(0.0, float(c.get("t1", 0)))
+            t2 = min(float(c.get("t2", duree)), duree)
+        except (TypeError, ValueError):
+            return jsonify({"error": "t1/t2 invalides"}), 400
+        ext = t2 - t1
+        if ext < 1:
+            return jsonify({"error": "Chaque extrait doit durer au moins 1 s"}), 400
+        if apercu:                        # aperçu : 5 premières secondes max
+            ext = min(ext, 5.0)
+        clips.append({"chemin": chemin, "t1": t1, "ext": ext,
+                      "audio": infos[3]})
+
+    transitions = []
+    for i, t in enumerate(trans_in):
+        typ = t.get("type", "fade")
+        if typ not in TRANSITIONS_MEDLEY:
+            return jsonify({"error": f"Transition inconnue : {typ}"}), 400
+        try:
+            d = max(0.5, min(float(t.get("duration", 1)), 3.0))
+        except (TypeError, ValueError):
+            return jsonify({"error": "Durée de transition invalide"}), 400
+        # Une transition ne peut pas dépasser la moitié des clips adjacents.
+        transitions.append(round(max(0.1, min(
+            d, clips[i]["ext"] / 2, clips[i + 1]["ext"] / 2)), 3))
+    types = [t.get("type", "fade") for t in trans_in]
+    duree_totale = sum(c["ext"] for c in clips) - sum(transitions)
+    task_id = new_task("medley")
+
+    def travail():
+        w, h = (640, 360) if apercu else RESOLUTIONS_MEDLEY[resolution]
+        args, fv = [], []
+        for i, c in enumerate(clips):
+            args += ["-ss", f"{c['t1']:.3f}", "-t", f"{c['ext']:.3f}",
+                     "-i", c["chemin"]]
+            fv.append(f"[{i}:v]scale={w}:{h}:force_original_aspect_ratio=decrease,"
+                      f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,"
+                      f"fps=30,setsar=1,settb=AVTB,format=yuv420p[v{i}]")
+            if c["audio"]:
+                fv.append(f"[{i}:a]aformat=sample_rates=44100:"
+                          f"channel_layouts=stereo[a{i}]")
+            else:                        # clip muet : piste de silence
+                fv.append(f"anullsrc=r=44100:cl=stereo:d={c['ext']:.3f}[a{i}]")
+        va, aa, offset = "[v0]", "[a0]", clips[0]["ext"]
+        for i, d in enumerate(transitions):
+            offset -= d
+            dern = i == len(transitions) - 1
+            outv, outa = ("[vout]", "[aout]") if dern else (f"[x{i}]", f"[y{i}]")
+            fv.append(f"{va}[v{i + 1}]xfade=transition={types[i]}:"
+                      f"duration={d}:offset={offset:.3f}{outv}")
+            fv.append(f"{aa}[a{i + 1}]acrossfade=d={d}{outa}")
+            va, aa = outv, outa
+            offset += clips[i + 1]["ext"]
+        if apercu:
+            enc = ["-c:v", "libx264", "-crf", "30", "-preset", "ultrafast"]
+            os.makedirs(MINIATURES_DIR, exist_ok=True)
+            sortie = os.path.join(MINIATURES_DIR, APERCU_MEDLEY)
+        else:
+            if debit == "auto":
+                enc = ["-c:v", "libx264", "-crf", "22", "-preset", "medium"]
+            else:
+                k = DEBITS_MEDLEY[debit][resolution]
+                enc = ["-c:v", "libx264", "-b:v", f"{k}k",
+                       "-maxrate", f"{int(k * 1.5)}k", "-bufsize", f"{k * 3}k",
+                       "-preset", "medium"]
+            sortie = chemin_sans_ecrasement(
+                os.path.join(DOWNLOADS_DIR, f"medley_{len(clips)}clips.mp4"))
+        if lancer_ffmpeg(task_id, args + [
+            "-filter_complex", ";".join(fv), "-map", "[vout]", "-map", "[aout]",
+        ] + enc + ["-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart"],
+                sortie, duree_totale):
+            if apercu:
+                update_task(task_id, status="done", progress=100,
+                            message="Aperçu prêt",
+                            output={"name": "Aperçu du medley",
+                                    "size": os.path.getsize(sortie),
+                                    "type": "preview", "warnings": []})
+            else:
+                terminer(task_id, sortie)
+
+    soumettre_encodage(task_id, travail)
+    return jsonify({"task_id": task_id})
+
+
 if __name__ == "__main__":
     os.makedirs(DOWNLOADS_DIR, exist_ok=True)
     os.makedirs(AUDIO_DIR, exist_ok=True)
