@@ -8,6 +8,19 @@ downloads/
 audio/
 audios/
 
+# Médias où qu'ils soient (trop gros pour git)
+*.mp4
+*.mkv
+*.webm
+*.mov
+*.avi
+*.mp3
+*.m4a
+*.wav
+*.flac
+*.ogg
+*.zip
+
 # Anciennes versions
 *.py.old
 
