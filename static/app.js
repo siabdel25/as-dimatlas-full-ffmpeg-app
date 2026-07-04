@@ -398,19 +398,56 @@ const RadioView = {
     stations: [], station: null, customUrl: "", customName: "",
     minutes: 10, taskId: null, error: "",
     playing: false, nowPlaying: null, npTimer: null,
+    query: "", results: null, searching: false, searchTimer: null,
+    favs: JSON.parse(localStorage.getItem("vc-radio-favs") || "[]"),
   }),
   async created() {
     const { data } = await axios.get(API + "/api/radio/stations");
     this.stations = data;
   },
   unmounted() { this.stopListen(); },
+  watch: {
+    query() {
+      clearTimeout(this.searchTimer);
+      this.results = null;
+      if (this.query.trim().length < 2) { this.searching = false; return; }
+      this.searching = true;
+      this.searchTimer = setTimeout(this.search, 450);
+    },
+  },
   computed: {
     urlActive() { return this.station ? this.station.url : this.customUrl.trim(); },
     nomActif() {
       return this.station ? this.station.name : (this.customName.trim() || "radio");
     },
+    favsVisibles() { return this.filtre(this.favs); },
+    stationsVisibles() {
+      const urls = new Set(this.favs.map(f => f.url));
+      return this.filtre(this.stations).filter(s => !urls.has(s.url));
+    },
   },
   methods: {
+    filtre(liste) {
+      const q = this.query.trim().toLowerCase();
+      if (!q) return liste;
+      return liste.filter(s =>
+        (s.name + " " + (s.genre || "")).toLowerCase().includes(q));
+    },
+    async search() {
+      try {
+        const { data } = await axios.get(API + "/api/radio/search",
+                                         { params: { q: this.query.trim() } });
+        const locales = new Set([...this.stations, ...this.favs].map(s => s.url));
+        this.results = data.filter(s => !locales.has(s.url));
+      } catch { this.results = []; }
+      this.searching = false;
+    },
+    isFav(s) { return this.favs.some(f => f.url === s.url); },
+    toggleFav(s) {
+      this.favs = this.isFav(s) ? this.favs.filter(f => f.url !== s.url)
+                                : [...this.favs, { name: s.name, genre: s.genre, url: s.url }];
+      localStorage.setItem("vc-radio-favs", JSON.stringify(this.favs));
+    },
     pick(s) {
       if (this.playing) this.stopListen();
       this.station = s;
@@ -462,16 +499,65 @@ const RadioView = {
       </header>
 
       <div class="vc-card mb-3">
-        <span class="vc-label d-block mb-2">Stations ({{ stations.length }})</span>
-        <div class="vc-files" style="max-height:260px">
-          <button v-for="s in stations" :key="s.url" type="button"
+        <div class="position-relative mb-3">
+          <i class="fa-solid fa-magnifying-glass vc-search-icon"></i>
+          <input v-model="query" type="search" class="form-control vc-search"
+                 placeholder="Rechercher une station (locale ou dans l'annuaire mondial)…">
+        </div>
+
+        <template v-if="favsVisibles.length">
+          <span class="vc-label d-block mb-2">
+            <i class="fa-solid fa-star me-1" style="color:var(--vc-accent)"></i>
+            Favoris ({{ favsVisibles.length }})
+          </span>
+          <div class="vc-files mb-3" style="max-height:180px">
+            <button v-for="s in favsVisibles" :key="'f' + s.url" type="button"
+                    class="vc-file" :class="{selected: station && station.url === s.url}"
+                    @click="pick(s)">
+              <i class="fa-solid fa-tower-broadcast"></i>
+              <span class="name">{{ s.name }}</span>
+              <span class="meta">{{ s.genre }}</span>
+              <i class="fa-solid fa-star vc-fav on" title="Retirer des favoris"
+                 @click.stop="toggleFav(s)"></i>
+            </button>
+          </div>
+        </template>
+
+        <span class="vc-label d-block mb-2">Stations ({{ stationsVisibles.length }})</span>
+        <div class="vc-files" style="max-height:230px">
+          <button v-for="s in stationsVisibles" :key="s.url" type="button"
                   class="vc-file" :class="{selected: station && station.url === s.url}"
                   @click="pick(s)">
             <i class="fa-solid fa-tower-broadcast"></i>
             <span class="name">{{ s.name }}</span>
             <span class="meta">{{ s.genre }}</span>
+            <i class="vc-fav fa-star" :class="isFav(s) ? 'fa-solid on' : 'fa-regular'"
+               :title="isFav(s) ? 'Retirer des favoris' : 'Ajouter aux favoris'"
+               @click.stop="toggleFav(s)"></i>
           </button>
         </div>
+
+        <template v-if="query.trim().length >= 2">
+          <span class="vc-label d-block mt-3 mb-2">
+            <i class="fa-solid fa-globe me-1"></i>Annuaire mondial
+            <i v-if="searching" class="fa-solid fa-spinner fa-spin ms-1"></i>
+            <template v-else-if="results">({{ results.length }})</template>
+          </span>
+          <p v-if="results && !results.length && !searching" class="text-secondary mb-0"
+             style="font-size:.9rem">Aucune station trouvée pour « {{ query }} ».</p>
+          <div v-if="results && results.length" class="vc-files" style="max-height:230px">
+            <button v-for="s in results" :key="'r' + s.url" type="button"
+                    class="vc-file" :class="{selected: station && station.url === s.url}"
+                    @click="pick(s)">
+              <i class="fa-solid fa-globe"></i>
+              <span class="name">{{ s.name }}</span>
+              <span class="meta">{{ s.genre }}</span>
+              <i class="vc-fav fa-star" :class="isFav(s) ? 'fa-solid on' : 'fa-regular'"
+                 :title="isFav(s) ? 'Retirer des favoris' : 'Ajouter aux favoris'"
+                 @click.stop="toggleFav(s)"></i>
+            </button>
+          </div>
+        </template>
         <div class="mt-3">
           <span class="vc-label d-block mb-1">Ou un flux personnalisé</span>
           <div class="d-flex gap-2 flex-wrap">
@@ -744,6 +830,7 @@ const LibraryView = {
   methods: {
     fmtSize, fmtDur,
     url(type, name) { return API + "/api/media/" + type + "/" + encodeURIComponent(name); },
+    poster(type, name) { return API + "/api/poster/" + type + "/" + encodeURIComponent(name); },
   },
   template: `
     <div>
@@ -757,7 +844,11 @@ const LibraryView = {
         <div class="vc-files">
           <a v-for="v in videos" :key="v.name" class="vc-file text-decoration-none"
              :href="url('video', v.name)" target="_blank">
-            <i class="fa-solid fa-film"></i>
+            <span class="vc-poster">
+              <i class="fa-solid fa-film"></i>
+              <img :src="poster('video', v.name)" alt="" loading="lazy"
+                   @error="e => e.target.remove()">
+            </span>
             <span class="name">{{ v.name }}</span>
             <span class="meta vc-mono">{{ fmtDur(v.duration) }} · {{ fmtSize(v.size) }}</span>
           </a>
@@ -768,7 +859,11 @@ const LibraryView = {
         <div class="vc-files">
           <a v-for="a in audios" :key="a.name" class="vc-file text-decoration-none"
              :href="url('audio', a.name)" target="_blank">
-            <i class="fa-solid fa-music"></i>
+            <span class="vc-poster">
+              <i class="fa-solid fa-music"></i>
+              <img :src="poster('audio', a.name)" alt="" loading="lazy"
+                   @error="e => e.target.remove()">
+            </span>
             <span class="name">{{ a.name }}</span>
             <span class="meta vc-mono">{{ fmtSize(a.size) }}</span>
           </a>

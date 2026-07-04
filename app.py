@@ -431,11 +431,82 @@ def servir_miniature(h, i):
     return send_from_directory(os.path.join(MINIATURES_DIR, h), f"t_{i:02d}.jpg")
 
 
+@app.get("/api/poster/<dossier>/<path:nom>")
+def poster_fichier(dossier, nom):
+    """Vignette unique pour la bibliothèque (cache dans .miniatures).
+
+    video : image prise à 10 % de la durée ; audio : pochette embarquée
+    s'il y en a une, sinon 404 et le front garde son icône."""
+    import hashlib
+    racine = {"video": DOWNLOADS_DIR, "audio": AUDIO_DIR}.get(dossier)
+    if not racine:
+        abort(404)
+    chemin = os.path.normpath(os.path.join(racine, nom))
+    if not chemin.startswith(racine + os.sep) or not os.path.isfile(chemin):
+        abort(404)
+    cle = f"poster:{dossier}:{nom}:{os.path.getmtime(chemin)}"
+    h = hashlib.md5(cle.encode()).hexdigest()[:16]
+    os.makedirs(MINIATURES_DIR, exist_ok=True)
+    cache = os.path.join(MINIATURES_DIR, f"p_{h}.jpg")
+    if not os.path.isfile(cache):
+        if dossier == "video":
+            duree = duree_video(chemin) or 0
+            args = ["-ss", f"{duree * 0.1:.2f}", "-i", chemin]
+        else:
+            args = ["-i", chemin, "-an"]
+        subprocess.run(
+            ["ffmpeg", "-y", "-v", "error"] + args +
+            ["-frames:v", "1", "-vf", "scale=112:-2", cache],
+            capture_output=True)
+        if not os.path.isfile(cache) or os.path.getsize(cache) == 0:
+            if os.path.isfile(cache):
+                os.remove(cache)
+            abort(404)
+    return send_from_directory(MINIATURES_DIR, f"p_{h}.jpg")
+
+
 # ------------------------------------------------------------- radio
 
 @app.get("/api/radio/stations")
 def stations_radio():
     return jsonify(RADIO_STATIONS)
+
+
+@app.get("/api/radio/search")
+def rechercher_radio():
+    """Recherche de stations dans l'annuaire ouvert Radio Browser.
+
+    Proxifié côté serveur pour choisir le miroir et uniformiser le format
+    avec RADIO_STATIONS ({name, genre, url})."""
+    import json as jsonlib
+    import urllib.parse
+    import urllib.request
+    q = (request.args.get("q") or "").strip()
+    if len(q) < 2:
+        return jsonify({"error": "Requête trop courte"}), 400
+    api = ("https://all.api.radio-browser.info/json/stations/search?"
+           + urllib.parse.urlencode({
+               "name": q, "limit": 30, "hidebroken": "true",
+               "order": "clickcount", "reverse": "true"}))
+    try:
+        req = urllib.request.Request(api, headers={"User-Agent": "VideoCoder/1.0"})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            stations = jsonlib.load(resp)
+    except Exception as e:
+        return jsonify({"error": f"Annuaire injoignable : {e}"}), 502
+    vues, resultats = set(), []
+    for s in stations:
+        url = (s.get("url_resolved") or s.get("url") or "").strip()
+        if not url.startswith(("http://", "https://")) or url in vues:
+            continue
+        vues.add(url)
+        genre = ", ".join(filter(None, [
+            (s.get("tags") or "").split(",")[0].strip(),
+            s.get("country") or None,
+            f"{s['bitrate']} kb/s" if s.get("bitrate") else None]))
+        resultats.append({"name": (s.get("name") or "Station").strip(),
+                          "genre": genre, "url": url})
+    return jsonify(resultats)
 
 
 @app.get("/api/radio/nowplaying")

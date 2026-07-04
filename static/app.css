@@ -267,6 +267,53 @@ h1, h2, h3, .vc-display {
   margin-top: 0.25rem;
 }
 
+/* ============ radio : recherche et favoris ============ */
+
+.vc-search { padding-left: 2.3rem; }
+.vc-search-icon {
+  position: absolute;
+  left: 0.85rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--vc-ink-2);
+  pointer-events: none;
+}
+
+.vc-file .vc-fav {
+  color: var(--vc-ink-2);
+  flex-shrink: 0;
+  padding: 0.25rem;
+  margin: -0.25rem;
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s;
+}
+.vc-file:hover .vc-fav, .vc-file .vc-fav.on { opacity: 1; }
+.vc-file .vc-fav.on { color: var(--vc-accent); }
+.vc-file .vc-fav:hover { color: var(--vc-accent); }
+
+/* ============ bibliothèque : vignettes ============ */
+
+.vc-poster {
+  position: relative;
+  width: 57px;
+  height: 32px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.3rem;
+  overflow: hidden;
+  background: var(--vc-panel-2);
+}
+.vc-poster i { color: var(--vc-accent); }
+.vc-poster img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 /* ============ divers ============ */
 
 .vc-thumb { border-radius: 0.45rem; max-width: 200px; border: 1px solid var(--vc-line); }

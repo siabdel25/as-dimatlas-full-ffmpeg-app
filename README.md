@@ -12,12 +12,12 @@ progression des traitements en temps réel.
 | 💬 **Réseaux sociaux** | Conversion WhatsApp/Instagram : H.264 + AAC, `yuv420p`, `faststart`, débit calculé selon la durée pour viser < 16 Mo |
 | 🎵 **Extraction audio** | Piste audio d'une vidéo en mp3, aac, ogg, wav ou flac |
 | ✂️ **Découpage** | Extrait de t1 à t2 (minutes décimales `1.5` ou `mm:ss`), coupe précise à l'image |
-| 📻 **Radio** | 18 stations marocaines intégrées + flux personnalisé : écoute en direct (titre en cours via ICY) et enregistrement MP3 avec arrêt anticipé |
+| 📻 **Radio** | 18 stations marocaines intégrées, recherche dans l'annuaire mondial Radio Browser, favoris ⭐ (localStorage), flux personnalisé : écoute en direct (titre en cours via ICY) et enregistrement MP3 avec arrêt anticipé |
 | 🖼️ **Images** | Découpe la vidéo en images JPEG/PNG (1 toutes les N secondes), livrées en ZIP |
 | 🎼 **Bande musicale** | Associe un audio à une vidéo : remplacement ou mixage avec le son d'origine |
 | 🔤 **Titre** | Incruste un texte (position, couleur, contour noir) sur la vidéo |
 | ✨ **Effets** | Transition d'intro/outro (fondu noir ou blanc, cercle, zoom, pixellisation…) avec fondu du son assorti |
-| 📂 **Bibliothèque** | Tous les fichiers produits, consultables en un clic |
+| 📂 **Bibliothèque** | Tous les fichiers produits, consultables en un clic, avec vignette (image de la vidéo, pochette de l'audio) |
 
 Les vidéos vont dans `downloads/`, les audios dans `audio/`. Aucun fichier
 n'est jamais écrasé (suffixes `_1`, `_2`, …).
@@ -76,6 +76,7 @@ Toutes les opérations longues renvoient un `task_id` à interroger sur
 | `/api/audio/extract` | POST | `{file, format}` |
 | `/api/cut` | POST | `{file, t1, t2}` (secondes) |
 | `/api/radio/stations` | GET | — |
+| `/api/radio/search` | GET | `?q=<nom>` (annuaire Radio Browser) |
 | `/api/radio/nowplaying` | GET | `?url=<flux>` |
 | `/api/radio/record` | POST | `{url, name, minutes}` |
 | `/api/frames` | POST | `{file, format, every}` |
