@@ -1,0 +1,15 @@
+# Environnement Python
+.venv/
+__pycache__/
+*.pyc
+
+# Fichiers médias produits par l'app
+downloads/
+audio/
+audios/
+
+# Anciennes versions
+*.py.old
+
+# Réglages locaux Claude Code
+.claude/settings.local.json

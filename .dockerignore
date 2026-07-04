@@ -1,0 +1,11 @@
+.venv
+downloads
+audio
+audios
+.claude
+__pycache__
+*.py.old
+scrap_movie.py
+yt_scraper.py
+Dockerfile
+docker-compose.yml

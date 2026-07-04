@@ -1,0 +1,11 @@
+services:
+  videocoder:
+    build: .
+    container_name: videocoder
+    ports:
+      - "5000:5000"
+    volumes:
+      # Les fichiers produits restent sur la machine hôte
+      - ./downloads:/app/downloads
+      - ./audio:/app/audio
+    restart: unless-stopped
