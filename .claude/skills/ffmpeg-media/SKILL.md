@@ -77,6 +77,19 @@ ffmpeg -ss 5 -t 3 -i in.mp4 -vf "fps=12,scale=480:-1:flags=lanczos,split[a][b];[
 
 # Vitesse x2 (vidéo + audio)
 -vf "setpts=PTS/2" -af "atempo=2"
+
+# Effet d'intro : xfade depuis un carton noir (toute transition xfade marche :
+# fadeblack, fadewhite, circleopen, wiperight, slideright, zoomin, pixelize,
+# hblur, dissolve, radial…). W/H/FPS = ceux de la source (ffprobe).
+# Pièges validés : xfade exige mêmes taille, fps ET base de temps sur ses deux
+# entrées → settb=AVTB partout, et fps= AVANT settb (fps réécrit la timebase).
+ffmpeg -i in.mp4 -filter_complex "\
+[0:v]setsar=1,fps=FPS,settb=AVTB[v0];\
+color=c=black:s=WxH:r=FPS:d=2.2,setsar=1,settb=AVTB[c];\
+[c][v0]xfade=transition=circleopen:duration=2:offset=0,format=yuv420p[v];\
+[0:a]afade=t=in:st=0:d=2[a]" \
+-map "[v]" -map "[a]" -c:v libx264 -crf 22 -c:a aac out.mp4
+# Outro : inverser les entrées ([v0][c]) avec offset=durée-2 et afade=t=out.
 ```
 
 ## Bonnes pratiques

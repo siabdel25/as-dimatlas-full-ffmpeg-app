@@ -16,10 +16,17 @@ progression des traitements en temps réel.
 | 🖼️ **Images** | Découpe la vidéo en images JPEG/PNG (1 toutes les N secondes), livrées en ZIP |
 | 🎼 **Bande musicale** | Associe un audio à une vidéo : remplacement ou mixage avec le son d'origine |
 | 🔤 **Titre** | Incruste un texte (position, couleur, contour noir) sur la vidéo |
+| ✨ **Effets** | Transition d'intro/outro (fondu noir ou blanc, cercle, zoom, pixellisation…) avec fondu du son assorti |
 | 📂 **Bibliothèque** | Tous les fichiers produits, consultables en un clic |
 
 Les vidéos vont dans `downloads/`, les audios dans `audio/`. Aucun fichier
 n'est jamais écrasé (suffixes `_1`, `_2`, …).
+
+Les encodages passent par une **file d'attente** (2 ffmpeg simultanés par
+défaut, variable d'environnement `ENCODERS` pour ajuster) : les tâches
+supplémentaires affichent « En file d'attente » puis démarrent dès qu'un
+encodeur se libère. Les téléchargements YouTube et les enregistrements radio,
+limités par le réseau, ne comptent pas dans cette limite.
 
 ## Démarrage rapide
 
@@ -74,6 +81,8 @@ Toutes les opérations longues renvoient un `task_id` à interroger sur
 | `/api/frames` | POST | `{file, format, every}` |
 | `/api/music` | POST | `{video, audio, mode: replace\|mix}` |
 | `/api/text` | POST | `{file, text, position, color}` |
+| `/api/effects` | GET | — (liste des effets) |
+| `/api/effects` | POST | `{file, effect, where: intro\|outro\|both, duration}` |
 | `/api/tasks/<id>` | GET | — |
 | `/api/tasks/<id>/stop` | POST | — (garde le fichier partiel) |
 | `/api/media/<video\|audio>/<nom>` | GET | — |

@@ -216,6 +216,57 @@ h1, h2, h3, .vc-display {
 .vc-warning { color: var(--vc-accent); font-size: 0.85rem; }
 .vc-error { color: var(--vc-err); font-size: 0.9rem; }
 
+/* ============ timeline de découpage ============ */
+
+.vc-player {
+  width: 100%;
+  max-height: 340px;
+  background: #000;
+  border-radius: 0.45rem;
+  border: 1px solid var(--vc-line);
+}
+
+.vc-timeline {
+  position: relative;
+  display: flex;
+  border: 1px solid var(--vc-line);
+  border-radius: 0.45rem;
+  overflow: hidden;
+  cursor: crosshair;
+  user-select: none;
+}
+.vc-timeline img {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 52px;
+  object-fit: cover;
+  display: block;
+  pointer-events: none;
+}
+.vc-timeline .sel {
+  position: absolute;
+  top: 0; bottom: 0;
+  background: color-mix(in srgb, var(--vc-accent) 28%, transparent);
+  border-left: 3px solid var(--vc-accent);
+  border-right: 3px solid var(--vc-accent);
+  pointer-events: none;
+}
+.vc-timeline .playhead {
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 2px;
+  background: #fff;
+  box-shadow: 0 0 4px rgba(0,0,0,0.8);
+  pointer-events: none;
+}
+
+.vc-timecodes {
+  display: flex;
+  justify-content: space-between;
+  color: var(--vc-ink-2);
+  margin-top: 0.25rem;
+}
+
 /* ============ divers ============ */
 
 .vc-thumb { border-radius: 0.45rem; max-width: 200px; border: 1px solid var(--vc-line); }

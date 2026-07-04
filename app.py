@@ -16,6 +16,7 @@ Lancement : .venv/bin/python app.py  →  http://localhost:5000
 """
 
 import os
+import queue
 import re
 import subprocess
 import threading
@@ -80,6 +81,37 @@ def new_task(kind):
 def update_task(task_id, **champs):
     with TASKS_LOCK:
         TASKS[task_id].update(champs)
+
+
+# File d'attente des encodages : limite les ffmpeg simultanés pour que N
+# tâches lancées d'affilée ne se partagent pas le CPU (statut "queued" en
+# attendant). Les tâches réseau (YouTube, radio) restent en threads directs :
+# elles ne pèsent pas sur le CPU et l'enregistrement radio, potentiellement
+# long, monopoliserait un encodeur.
+ENCODE_QUEUE = queue.Queue()
+NB_ENCODEURS = max(1, int(os.environ.get("ENCODERS", "2")))
+
+
+def soumettre_encodage(task_id, fn):
+    update_task(task_id, status="queued",
+                message=f"En file d'attente ({ENCODE_QUEUE.qsize() + 1})…")
+    ENCODE_QUEUE.put((task_id, fn))
+
+
+def _boucle_encodeur():
+    while True:
+        task_id, fn = ENCODE_QUEUE.get()
+        update_task(task_id, status="running", message="Démarrage…")
+        try:
+            fn()
+        except Exception as exc:                # tâche suivante quoi qu'il arrive
+            update_task(task_id, status="error", message=str(exc))
+        finally:
+            ENCODE_QUEUE.task_done()
+
+
+for _ in range(NB_ENCODEURS):
+    threading.Thread(target=_boucle_encodeur, daemon=True).start()
 
 
 def fichier_video_valide(nom):
@@ -284,7 +316,7 @@ def convertir():
                              "WhatsApp (OK en message et en Reel)")
             terminer(task_id, sortie, avert)
 
-    threading.Thread(target=travail, daemon=True).start()
+    soumettre_encodage(task_id, travail)
     return jsonify({"task_id": task_id})
 
 
@@ -307,7 +339,7 @@ def extraire_audio():
                          + fmt["args"], sortie, duree):
             terminer(task_id, sortie)
 
-    threading.Thread(target=travail, daemon=True).start()
+    soumettre_encodage(task_id, travail)
     return jsonify({"task_id": task_id})
 
 
@@ -343,7 +375,7 @@ def decouper():
         ], sortie, t2 - t1):
             terminer(task_id, sortie)
 
-    threading.Thread(target=travail, daemon=True).start()
+    soumettre_encodage(task_id, travail)
     return jsonify({"task_id": task_id})
 
 
@@ -359,6 +391,44 @@ def arreter_tache(task_id):
     if proc:
         proc.terminate()
     return jsonify({"ok": True})
+
+
+# ------------------------------------------------------- miniatures timeline
+
+MINIATURES_DIR = os.path.join(DOWNLOADS_DIR, ".miniatures")
+NB_MINIATURES = 16
+
+
+@app.post("/api/thumbnails")
+def miniatures_timeline():
+    """Génère (et met en cache) la bande de miniatures d'une vidéo."""
+    import hashlib
+    source = fichier_video_valide((request.json or {}).get("file", ""))
+    if not source:
+        return jsonify({"error": "Fichier introuvable"}), 400
+    duree = duree_video(source)
+    if not duree:
+        return jsonify({"error": "Durée illisible"}), 400
+    cle = f"{os.path.basename(source)}:{os.path.getmtime(source)}"
+    h = hashlib.md5(cle.encode()).hexdigest()[:16]
+    dossier = os.path.join(MINIATURES_DIR, h)
+    if not os.path.isdir(dossier) or not os.listdir(dossier):
+        os.makedirs(dossier, exist_ok=True)
+        subprocess.run(
+            ["ffmpeg", "-y", "-v", "error", "-i", source,
+             "-vf", f"fps={NB_MINIATURES}/{duree},scale=160:-2",
+             "-frames:v", str(NB_MINIATURES),
+             os.path.join(dossier, "t_%02d.jpg")],
+            capture_output=True)
+    nb = len([f for f in os.listdir(dossier) if f.endswith(".jpg")])
+    return jsonify({"hash": h, "count": nb, "duration": duree})
+
+
+@app.get("/api/thumb/<h>/<int:i>")
+def servir_miniature(h, i):
+    if not re.fullmatch(r"[0-9a-f]{16}", h):
+        abort(404)
+    return send_from_directory(os.path.join(MINIATURES_DIR, h), f"t_{i:02d}.jpg")
 
 
 # ------------------------------------------------------------- radio
@@ -466,7 +536,7 @@ def extraire_images():
         else:
             sh.rmtree(dossier, ignore_errors=True)
 
-    threading.Thread(target=travail, daemon=True).start()
+    soumettre_encodage(task_id, travail)
     return jsonify({"task_id": task_id})
 
 
@@ -500,7 +570,7 @@ def bande_musicale():
         if lancer_ffmpeg(task_id, args, sortie, duree):
             terminer(task_id, sortie)
 
-    threading.Thread(target=travail, daemon=True).start()
+    soumettre_encodage(task_id, travail)
     return jsonify({"task_id": task_id})
 
 
@@ -546,7 +616,104 @@ def incruster_texte():
         if ok:
             terminer(task_id, sortie)
 
-    threading.Thread(target=travail, daemon=True).start()
+    soumettre_encodage(task_id, travail)
+    return jsonify({"task_id": task_id})
+
+
+# Transitions xfade proposées pour l'effet d'intro/outro
+EFFETS_XFADE = {
+    "fadeblack": "Fondu noir",
+    "fadewhite": "Fondu blanc",
+    "circleopen": "Cercle qui s'ouvre",
+    "wiperight": "Balayage",
+    "slideright": "Glissement",
+    "zoomin": "Zoom",
+    "pixelize": "Pixellisation",
+    "hblur": "Flou",
+    "dissolve": "Dissolution",
+    "radial": "Volet radial",
+}
+
+
+def infos_flux(chemin):
+    """(largeur, hauteur, fps, a_du_son) du premier flux vidéo, ou None."""
+    res = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=width,height,r_frame_rate",
+         "-of", "csv=p=0", chemin],
+        capture_output=True, text=True)
+    try:
+        w, h, fps = res.stdout.strip().splitlines()[0].split(",")[:3]
+        audio = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "a",
+             "-show_entries", "stream=codec_type", "-of", "csv=p=0", chemin],
+            capture_output=True, text=True).stdout.strip() != ""
+        return int(w), int(h), fps, audio
+    except (ValueError, IndexError):
+        return None
+
+
+@app.get("/api/effects")
+def liste_effets():
+    return jsonify([{"id": k, "label": v} for k, v in EFFETS_XFADE.items()])
+
+
+@app.post("/api/effects")
+def effet_video():
+    data = request.json or {}
+    source = fichier_video_valide(data.get("file", ""))
+    effet = data.get("effect", "fadeblack")
+    ou = data.get("where", "intro")
+    try:
+        d = float(data.get("duration", 2))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Durée invalide"}), 400
+    if not source or effet not in EFFETS_XFADE \
+            or ou not in ("intro", "outro", "both"):
+        return jsonify({"error": "Paramètres invalides"}), 400
+    duree = duree_video(source)
+    infos = infos_flux(source)
+    if not duree or not infos:
+        return jsonify({"error": "Vidéo illisible"}), 400
+    d = max(0.5, min(d, 5.0, duree / 2 - 0.1))
+    task_id = new_task("effects")
+
+    def travail():
+        w, h, fps, audio = infos
+        # L'effet est un xfade entre un carton noir et la vidéo (et/ou l'inverse
+        # en fin) : toutes les transitions xfade deviennent des effets d'intro.
+        # settb=AVTB : xfade exige des bases de temps identiques sur ses entrées
+        noir = (f"color=c=black:s={w}x{h}:r={fps}:d={d + 0.2:.3f},"
+                f"setsar=1,settb=AVTB")
+        # fps avant settb : le filtre fps réécrirait la base de temps après coup
+        fv, fa = [f"[0:v]setsar=1,fps={fps},settb=AVTB[v0]"], []
+        etape = "[v0]"
+        if ou in ("intro", "both"):
+            fv.append(f"{noir}[ci];[ci]{etape}xfade=transition={effet}:"
+                      f"duration={d}:offset=0[v1]")
+            etape = "[v1]"
+            fa.append(f"afade=t=in:st=0:d={d}")
+        if ou in ("outro", "both"):
+            fv.append(f"{noir}[co];{etape}[co]xfade=transition={effet}:"
+                      f"duration={d}:offset={max(0.0, duree - d):.3f}[v2]")
+            etape = "[v2]"
+            fa.append(f"afade=t=out:st={max(0.0, duree - d):.3f}:d={d}")
+        fv.append(f"{etape}format=yuv420p[vout]")
+        graphe = ";".join(fv)
+        args = ["-i", source]
+        maps = ["-map", "[vout]"]
+        if audio:
+            graphe += f";[0:a]{','.join(fa)}[aout]"
+            maps += ["-map", "[aout]", "-c:a", "aac", "-b:a", "128k"]
+        sortie = chemin_sans_ecrasement(
+            f"{os.path.splitext(source)[0]}_effet_{effet}.mp4")
+        if lancer_ffmpeg(task_id, args + ["-filter_complex", graphe] + maps + [
+            "-c:v", "libx264", "-crf", "22", "-preset", "medium",
+            "-movflags", "+faststart",
+        ], sortie, duree):
+            terminer(task_id, sortie)
+
+    soumettre_encodage(task_id, travail)
     return jsonify({"task_id": task_id})
 
 

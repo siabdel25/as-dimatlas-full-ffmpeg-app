@@ -84,33 +84,37 @@ const TaskProgress = {
   emits: ["done"],
   data: () => ({ task: null, timer: null }),
   watch: {
-    taskId: { immediate: true, handler(id) { this.stop(); if (id) this.poll(); } },
+    taskId: { immediate: true, handler(id) { this.stopPoll(); if (id) this.poll(); } },
   },
-  unmounted() { this.stop(); },
+  unmounted() { this.stopPoll(); },
   methods: {
-    stop() { if (this.timer) { clearInterval(this.timer); this.timer = null; } },
+    stopPoll() { if (this.timer) { clearInterval(this.timer); this.timer = null; } },
     poll() {
       const tick = async () => {
         const { data } = await axios.get(API + "/api/tasks/" + this.taskId);
         this.task = data;
-        if (data.status !== "running") { this.stop(); this.$emit("done", data); }
+        if (data.status !== "running" && data.status !== "queued") {
+          this.stopPoll(); this.$emit("done", data);
+        }
       };
       tick();
       this.timer = setInterval(tick, 800);
     },
     fmtSize,
     mediaUrl(o) { return API + "/api/media/" + o.type + "/" + encodeURIComponent(o.name); },
-    async stop() { await axios.post(API + "/api/tasks/" + this.taskId + "/stop"); },
+    async stopTask() { await axios.post(API + "/api/tasks/" + this.taskId + "/stop"); },
   },
   template: `
     <div v-if="task" class="mt-3">
-      <div v-if="task.status === 'running'">
+      <div v-if="task.status === 'running' || task.status === 'queued'">
         <div class="d-flex justify-content-between mb-1">
-          <span class="vc-label">{{ task.message }}</span>
+          <span class="vc-label">
+            <i v-if="task.status === 'queued'" class="fa-solid fa-hourglass-half me-1"></i>{{ task.message }}
+          </span>
           <span class="vc-mono">{{ task.progress }} %</span>
         </div>
         <div class="vc-progress"><div class="bar" :style="{width: task.progress + '%'}"></div></div>
-        <button v-if="stoppable" class="btn btn-ghost btn-sm mt-2" @click="stop">
+        <button v-if="stoppable && task.status === 'running'" class="btn btn-ghost btn-sm mt-2" @click="stopTask">
           <i class="fa-solid fa-stop me-1"></i>Arrêter (garde le fichier)
         </button>
       </div>
@@ -266,26 +270,68 @@ const AudioView = {
 
 const CutView = {
   components: { FilePicker, TaskProgress },
-  data: () => ({ file: null, t1: "", t2: "", taskId: null, error: "" }),
+  data: () => ({
+    file: null, thumbs: null, dur: 0,
+    t1s: 0, t2s: 0, cur: 0,
+    t1txt: "0:00", t2txt: "0:00",
+    taskId: null, error: "",
+  }),
+  async created() {
+    // Lien direct : #/cut?file=<nom> présélectionne la vidéo
+    const nom = this.$route.query.file;
+    if (nom) {
+      const { data } = await axios.get(API + "/api/files");
+      const f = data.videos.find(v => v.name === nom);
+      if (f) this.pick(f);
+    }
+  },
   computed: {
-    dureeTexte() { return this.file?.duration ? fmtDur(this.file.duration) : null; },
+    videoUrl() {
+      return this.file ? API + "/api/media/video/" + encodeURIComponent(this.file.name) : "";
+    },
+    selStyle() {
+      if (!this.dur) return {};
+      return {
+        left: (this.t1s / this.dur * 100) + "%",
+        width: (Math.max(0, this.t2s - this.t1s) / this.dur * 100) + "%",
+      };
+    },
   },
   methods: {
-    parseMin(s) {
+    fmtDur,
+    async pick(f) {
+      this.file = f; this.taskId = null; this.error = ""; this.thumbs = null;
+      try {
+        const { data } = await axios.post(API + "/api/thumbnails", { file: f.name });
+        this.thumbs = data;
+        this.dur = data.duration;
+        this.setT1(0); this.setT2(this.dur); this.cur = 0;
+      } catch (e) { this.error = e.response?.data?.error || "Erreur réseau"; }
+    },
+    thumbUrl(i) { return API + "/api/thumb/" + this.thumbs.hash + "/" + i; },
+    seek(ev) {
+      const r = ev.currentTarget.getBoundingClientRect();
+      const t = (ev.clientX - r.left) / r.width * this.dur;
+      const vid = this.$refs.vid;
+      if (vid) vid.currentTime = Math.max(0, Math.min(t, this.dur));
+    },
+    setT1(t) { this.t1s = Math.max(0, Math.min(t, this.dur)); this.t1txt = fmtDur(this.t1s); },
+    setT2(t) { this.t2s = Math.max(0, Math.min(t, this.dur)); this.t2txt = fmtDur(this.t2s); },
+    parseTxt(s) {
       s = String(s).trim().replace(",", ".");
       const m = s.match(/^(\d+):([0-5]?\d)$/);
       if (m) return +m[1] * 60 + +m[2];
       const f = parseFloat(s);
       return isNaN(f) ? null : f * 60;
     },
+    editT1() { const t = this.parseTxt(this.t1txt); if (t != null) this.setT1(t); },
+    editT2() { const t = this.parseTxt(this.t2txt); if (t != null) this.setT2(t); },
     async cut() {
       this.error = ""; this.taskId = null;
-      const t1 = this.parseMin(this.t1), t2 = this.parseMin(this.t2);
-      if (t1 == null || t2 == null) { this.error = "Temps invalides. Exemples : 1.5 ou 1:30"; return; }
-      if (t2 <= t1) { this.error = "t2 doit être supérieur à t1."; return; }
+      if (this.t2s <= this.t1s) { this.error = "La fin doit être après le début."; return; }
       try {
         const { data } = await axios.post(API + "/api/cut",
-                                          { file: this.file.name, t1, t2 });
+          { file: this.file.name, t1: this.t1s, t2: this.t2s });
         this.taskId = data.task_id;
       } catch (e) { this.error = e.response?.data?.error || "Erreur réseau"; }
     },
@@ -295,27 +341,51 @@ const CutView = {
       <header>
         <span class="vc-label">Montage</span>
         <h1>Découpage</h1>
-        <p>Extrait la portion entre deux temps, précis à l'image près.
-           Saisissez les temps en minutes (1.5) ou en mm:ss (1:30).</p>
+        <p>Regardez la vidéo, cliquez sur la timeline pour vous déplacer, puis marquez
+           le début et la fin de la partie à garder — pratique pour sauter une pub.</p>
       </header>
       <div class="vc-card">
-        <file-picker @select="f => { file = f; taskId = null }"></file-picker>
-        <p v-if="dureeTexte" class="mt-2 mb-0 text-secondary">
-          Durée de la vidéo : <span class="vc-mono">{{ dureeTexte }}</span>
-        </p>
-        <div class="d-flex gap-2 align-items-end mt-3 flex-wrap">
-          <div>
-            <label class="vc-label d-block mb-1" for="t1">Début (t1)</label>
-            <input id="t1" v-model="t1" class="form-control vc-mono" style="width:8rem" placeholder="0:30">
+        <file-picker @select="pick"></file-picker>
+
+        <div v-if="thumbs" class="mt-3">
+          <video ref="vid" :src="videoUrl" controls class="vc-player"
+                 @timeupdate="cur = $event.target.currentTime"></video>
+
+          <div class="vc-timeline mt-2" @click="seek" title="Cliquer pour se déplacer">
+            <img v-for="i in thumbs.count" :key="i" :src="thumbUrl(i)" alt="">
+            <div class="sel" :style="selStyle"></div>
+            <div class="playhead" :style="{left: (dur ? cur/dur*100 : 0) + '%'}"></div>
           </div>
-          <div>
-            <label class="vc-label d-block mb-1" for="t2">Fin (t2)</label>
-            <input id="t2" v-model="t2" class="form-control vc-mono" style="width:8rem" placeholder="1:00">
+          <div class="vc-timecodes vc-mono">
+            <span>0:00</span>
+            <span>lecture : {{ fmtDur(cur) }}</span>
+            <span>{{ fmtDur(dur) }}</span>
           </div>
-          <button class="btn btn-vc" :disabled="!file || !t1 || !t2" @click="cut">
-            <i class="fa-solid fa-scissors me-1"></i>Découper
-          </button>
+
+          <div class="d-flex gap-2 align-items-end mt-3 flex-wrap">
+            <button class="btn btn-ghost" @click="setT1(cur)" title="Marquer le début à la position de lecture">
+              <i class="fa-solid fa-arrow-right-to-bracket me-1"></i>Début ici
+            </button>
+            <button class="btn btn-ghost" @click="setT2(cur)" title="Marquer la fin à la position de lecture">
+              <i class="fa-solid fa-arrow-right-from-bracket me-1"></i>Fin ici
+            </button>
+            <div>
+              <label class="vc-label d-block mb-1" for="t1">Début</label>
+              <input id="t1" v-model="t1txt" @change="editT1"
+                     class="form-control vc-mono" style="width:7rem">
+            </div>
+            <div>
+              <label class="vc-label d-block mb-1" for="t2">Fin</label>
+              <input id="t2" v-model="t2txt" @change="editT2"
+                     class="form-control vc-mono" style="width:7rem">
+            </div>
+            <button class="btn btn-vc" :disabled="t2s <= t1s" @click="cut">
+              <i class="fa-solid fa-scissors me-1"></i>Découper
+              <span class="vc-mono ms-1">({{ fmtDur(t2s - t1s) }})</span>
+            </button>
+          </div>
         </div>
+
         <p v-if="error" class="vc-error mt-3 mb-0">{{ error }}</p>
         <task-progress :task-id="taskId"></task-progress>
       </div>
@@ -601,6 +671,68 @@ const TextView = {
     </div>`,
 };
 
+const EffectsView = {
+  components: { FilePicker, TaskProgress },
+  data: () => ({
+    file: null, effects: [], effect: "fadeblack", where: "intro",
+    duration: 2, taskId: null, error: "",
+    wheres: [["intro", "Début de la vidéo"], ["outro", "Fin de la vidéo"],
+             ["both", "Début et fin"]],
+  }),
+  async created() {
+    const { data } = await axios.get(API + "/api/effects");
+    this.effects = data;
+  },
+  methods: {
+    async run() {
+      this.error = ""; this.taskId = null;
+      try {
+        const { data } = await axios.post(API + "/api/effects", {
+          file: this.file.name, effect: this.effect,
+          where: this.where, duration: Number(this.duration) || 2,
+        });
+        this.taskId = data.task_id;
+      } catch (e) { this.error = e.response?.data?.error || "Erreur réseau"; }
+    },
+  },
+  template: `
+    <div>
+      <header>
+        <span class="vc-label">Habillage visuel</span>
+        <h1>Effets d'intro / outro</h1>
+        <p>Ajoute une transition d'ouverture ou de fermeture (fondu, cercle,
+           zoom…) sur la vidéo, avec fondu du son assorti.</p>
+      </header>
+      <div class="vc-card">
+        <file-picker @select="f => { file = f; taskId = null }"></file-picker>
+        <div class="d-flex gap-2 align-items-end mt-3 flex-wrap">
+          <div>
+            <label class="vc-label d-block mb-1" for="fx">Effet</label>
+            <select id="fx" v-model="effect" class="form-select" style="width:auto">
+              <option v-for="e in effects" :key="e.id" :value="e.id">{{ e.label }}</option>
+            </select>
+          </div>
+          <div>
+            <label class="vc-label d-block mb-1" for="ou">Appliquer</label>
+            <select id="ou" v-model="where" class="form-select" style="width:auto">
+              <option v-for="[v, l] in wheres" :key="v" :value="v">{{ l }}</option>
+            </select>
+          </div>
+          <div>
+            <label class="vc-label d-block mb-1" for="dur">Durée (s)</label>
+            <input id="dur" v-model="duration" type="number" min="0.5" max="5"
+                   step="0.5" class="form-control" style="width:6rem">
+          </div>
+          <button class="btn btn-vc" :disabled="!file" @click="run">
+            <i class="fa-solid fa-wand-magic-sparkles me-1"></i>Appliquer l'effet
+          </button>
+        </div>
+        <p v-if="error" class="vc-error mt-3 mb-0">{{ error }}</p>
+        <task-progress :task-id="taskId"></task-progress>
+      </div>
+    </div>`,
+};
+
 const LibraryView = {
   data: () => ({ videos: [], audios: [], exports: [] }),
   async created() {
@@ -670,6 +802,7 @@ const router = createRouter({
     { path: "/frames", component: FramesView },
     { path: "/music", component: MusicView },
     { path: "/text", component: TextView },
+    { path: "/effects", component: EffectsView },
     { path: "/library", component: LibraryView },
   ],
 });
