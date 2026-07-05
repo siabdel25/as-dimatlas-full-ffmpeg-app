@@ -195,15 +195,24 @@ def liste_fichiers():
     videos, audios, exports = [], [], []
     for f in sorted(os.listdir(DOWNLOADS_DIR)) if os.path.isdir(DOWNLOADS_DIR) else []:
         chemin = os.path.join(DOWNLOADS_DIR, f)
+        if not os.path.isfile(chemin):
+            continue
         if f.lower().endswith(VIDEO_EXTS):
             videos.append({"name": f, "size": os.path.getsize(chemin),
-                           "duration": duree_video(chemin)})
+                           "duration": duree_video(chemin),
+                           "created": os.path.getmtime(chemin)})
         elif f.lower().endswith(".zip"):
-            exports.append({"name": f, "size": os.path.getsize(chemin)})
+            exports.append({"name": f, "size": os.path.getsize(chemin),
+                            "created": os.path.getmtime(chemin)})
     for f in sorted(os.listdir(AUDIO_DIR)) if os.path.isdir(AUDIO_DIR) else []:
         chemin = os.path.join(AUDIO_DIR, f)
         if os.path.isfile(chemin):
-            audios.append({"name": f, "size": os.path.getsize(chemin)})
+            audios.append({"name": f, "size": os.path.getsize(chemin),
+                           "created": os.path.getmtime(chemin)})
+    # Plus récent en premier : c'est l'ordre le plus utile dans une
+    # bibliothèque qui ne fait que grossir.
+    for liste in (videos, audios, exports):
+        liste.sort(key=lambda o: o["created"], reverse=True)
     return jsonify({"videos": videos, "audios": audios, "exports": exports})
 
 

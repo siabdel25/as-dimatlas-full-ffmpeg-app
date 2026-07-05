@@ -22,12 +22,19 @@ function fmtDur(s) {
   return m + ":" + String(sec).padStart(2, "0");
 }
 
+function fmtDate(ts) {
+  if (ts == null) return "";
+  const d = new Date(ts * 1000);
+  return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" })
+    + " " + d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+}
+
 /* ---------------------------------------------------------- FilePicker */
 
 const FilePicker = {
   props: { kind: { type: String, default: "videos" } },
   emits: ["select"],
-  data: () => ({ files: [], selected: null, loading: true }),
+  data: () => ({ files: [], selected: null, loading: true, query: "" }),
   computed: {
     label() {
       return this.kind === "audios" ? "Audios dans audio/" : "Vidéos dans downloads/";
@@ -38,6 +45,10 @@ const FilePicker = {
         : "Aucune vidéo. Téléchargez-en une depuis l'onglet YouTube.";
     },
     icone() { return this.kind === "audios" ? "fa-music" : "fa-film"; },
+    filtres() {
+      const q = this.query.trim().toLowerCase();
+      return q ? this.files.filter(f => f.name.toLowerCase().includes(q)) : this.files;
+    },
   },
   async created() { await this.reload(); },
   methods: {
@@ -51,27 +62,35 @@ const FilePicker = {
       this.selected = v.name;
       this.$emit("select", v);
     },
-    fmtSize, fmtDur,
+    fmtSize, fmtDur, fmtDate,
   },
   template: `
     <div>
       <div class="d-flex justify-content-between align-items-center mb-2">
-        <span class="vc-label">{{ label }}</span>
+        <span class="vc-label">{{ label }} ({{ filtres.length }})</span>
         <button class="btn btn-ghost btn-sm" @click="reload" title="Actualiser">
           <i class="fa-solid fa-rotate"></i>
         </button>
       </div>
+      <div class="position-relative mb-2">
+        <i class="fa-solid fa-magnifying-glass vc-search-icon"></i>
+        <input v-model="query" type="search" class="form-control vc-search"
+               placeholder="Rechercher un fichier…">
+      </div>
       <p v-if="loading" class="text-secondary mb-0">Chargement…</p>
       <p v-else-if="!files.length" class="text-secondary mb-0">{{ vide }}</p>
+      <p v-else-if="!filtres.length" class="text-secondary mb-0">Aucun résultat pour « {{ query }} ».</p>
       <div v-else class="vc-files">
-        <button v-for="v in files" :key="v.name" type="button"
+        <button v-for="(v, i) in filtres" :key="v.name" type="button"
                 class="vc-file" :class="{selected: v.name === selected}"
                 @click="pick(v)">
+          <span class="vc-idx vc-mono">{{ i + 1 }}</span>
           <i class="fa-solid" :class="icone"></i>
           <span class="name">{{ v.name }}</span>
           <span class="meta vc-mono">
             <template v-if="v.duration != null">{{ fmtDur(v.duration) }} · </template>{{ fmtSize(v.size) }}
           </span>
+          <span class="meta vc-mono vc-created">{{ fmtDate(v.created) }}</span>
         </button>
       </div>
     </div>`,
@@ -1115,15 +1134,22 @@ const MedleyView = {
 };
 
 const LibraryView = {
-  data: () => ({ videos: [], audios: [], exports: [] }),
+  data: () => ({ videos: [], audios: [], exports: [], query: "" }),
   async created() {
     const { data } = await axios.get(API + "/api/files");
     this.videos = data.videos;
     this.audios = data.audios;
     this.exports = data.exports || [];
   },
+  computed: {
+    match() {
+      const q = this.query.trim().toLowerCase();
+      const f = liste => q ? liste.filter(x => x.name.toLowerCase().includes(q)) : liste;
+      return { videos: f(this.videos), audios: f(this.audios), exports: f(this.exports) };
+    },
+  },
   methods: {
-    fmtSize, fmtDur,
+    fmtSize, fmtDur, fmtDate,
     url(type, name) { return API + "/api/media/" + type + "/" + encodeURIComponent(name); },
     poster(type, name) { return API + "/api/poster/" + type + "/" + encodeURIComponent(name); },
   },
@@ -1134,11 +1160,20 @@ const LibraryView = {
         <h1>Bibliothèque</h1>
         <p>Tout ce que l'atelier a produit : vidéos dans downloads, pistes dans audio.</p>
       </header>
+
+      <div class="position-relative mb-3">
+        <i class="fa-solid fa-magnifying-glass vc-search-icon"></i>
+        <input v-model="query" type="search" class="form-control vc-search"
+               placeholder="Rechercher dans toute la bibliothèque…">
+      </div>
+
       <div class="vc-card mb-3">
-        <span class="vc-label d-block mb-2">Vidéos ({{ videos.length }})</span>
-        <div class="vc-files">
-          <a v-for="v in videos" :key="v.name" class="vc-file text-decoration-none"
+        <span class="vc-label d-block mb-2">Vidéos ({{ match.videos.length }})</span>
+        <p v-if="!match.videos.length" class="text-secondary mb-0">Aucun résultat.</p>
+        <div v-else class="vc-files">
+          <a v-for="(v, i) in match.videos" :key="v.name" class="vc-file text-decoration-none"
              :href="url('video', v.name)" target="_blank">
+            <span class="vc-idx vc-mono">{{ i + 1 }}</span>
             <span class="vc-poster">
               <i class="fa-solid fa-film"></i>
               <img :src="poster('video', v.name)" alt="" loading="lazy"
@@ -1146,14 +1181,17 @@ const LibraryView = {
             </span>
             <span class="name">{{ v.name }}</span>
             <span class="meta vc-mono">{{ fmtDur(v.duration) }} · {{ fmtSize(v.size) }}</span>
+            <span class="meta vc-mono vc-created">{{ fmtDate(v.created) }}</span>
           </a>
         </div>
       </div>
       <div class="vc-card mb-3">
-        <span class="vc-label d-block mb-2">Audios ({{ audios.length }})</span>
-        <div class="vc-files">
-          <a v-for="a in audios" :key="a.name" class="vc-file text-decoration-none"
+        <span class="vc-label d-block mb-2">Audios ({{ match.audios.length }})</span>
+        <p v-if="!match.audios.length" class="text-secondary mb-0">Aucun résultat.</p>
+        <div v-else class="vc-files">
+          <a v-for="(a, i) in match.audios" :key="a.name" class="vc-file text-decoration-none"
              :href="url('audio', a.name)" target="_blank">
+            <span class="vc-idx vc-mono">{{ i + 1 }}</span>
             <span class="vc-poster">
               <i class="fa-solid fa-music"></i>
               <img :src="poster('audio', a.name)" alt="" loading="lazy"
@@ -1161,17 +1199,21 @@ const LibraryView = {
             </span>
             <span class="name">{{ a.name }}</span>
             <span class="meta vc-mono">{{ fmtSize(a.size) }}</span>
+            <span class="meta vc-mono vc-created">{{ fmtDate(a.created) }}</span>
           </a>
         </div>
       </div>
       <div class="vc-card" v-if="exports.length">
-        <span class="vc-label d-block mb-2">Exports d'images ({{ exports.length }})</span>
-        <div class="vc-files">
-          <a v-for="e in exports" :key="e.name" class="vc-file text-decoration-none"
+        <span class="vc-label d-block mb-2">Exports d'images ({{ match.exports.length }})</span>
+        <p v-if="!match.exports.length" class="text-secondary mb-0">Aucun résultat.</p>
+        <div v-else class="vc-files">
+          <a v-for="(e, i) in match.exports" :key="e.name" class="vc-file text-decoration-none"
              :href="url('video', e.name)" target="_blank">
+            <span class="vc-idx vc-mono">{{ i + 1 }}</span>
             <i class="fa-solid fa-file-zipper"></i>
             <span class="name">{{ e.name }}</span>
             <span class="meta vc-mono">{{ fmtSize(e.size) }}</span>
+            <span class="meta vc-mono vc-created">{{ fmtDate(e.created) }}</span>
           </a>
         </div>
       </div>

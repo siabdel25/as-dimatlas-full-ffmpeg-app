@@ -21,7 +21,11 @@ progression des traitements en temps réel.
 | 📂 **Bibliothèque** | Tous les fichiers produits, consultables en un clic, avec vignette (image de la vidéo, pochette de l'audio) |
 
 Les vidéos vont dans `downloads/`, les audios dans `audio/`. Aucun fichier
-n'est jamais écrasé (suffixes `_1`, `_2`, …).
+n'est jamais écrasé (suffixes `_1`, `_2`, …). Partout où l'on choisit un
+fichier (découpage, medley, images, bande musicale, titre, effets,
+extraction audio) comme dans la Bibliothèque : un champ de recherche filtre
+la liste par nom, chaque ligne est numérotée et affiche sa date de création,
+la liste est triée du plus récent au plus ancien.
 
 Les encodages passent par une **file d'attente** (2 ffmpeg simultanés par
 défaut, variable d'environnement `ENCODERS` pour ajuster) : les tâches
