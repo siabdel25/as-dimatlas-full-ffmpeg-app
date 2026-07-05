@@ -22,12 +22,19 @@ function fmtDur(s) {
   return m + ":" + String(sec).padStart(2, "0");
 }
 
+function fmtDate(ts) {
+  if (ts == null) return "";
+  const d = new Date(ts * 1000);
+  return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" })
+    + " " + d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+}
+
 /* ---------------------------------------------------------- FilePicker */
 
 const FilePicker = {
   props: { kind: { type: String, default: "videos" } },
   emits: ["select"],
-  data: () => ({ files: [], selected: null, loading: true }),
+  data: () => ({ files: [], selected: null, loading: true, query: "" }),
   computed: {
     label() {
       return this.kind === "audios" ? "Audios dans audio/" : "Vidéos dans downloads/";
@@ -38,6 +45,10 @@ const FilePicker = {
         : "Aucune vidéo. Téléchargez-en une depuis l'onglet YouTube.";
     },
     icone() { return this.kind === "audios" ? "fa-music" : "fa-film"; },
+    filtres() {
+      const q = this.query.trim().toLowerCase();
+      return q ? this.files.filter(f => f.name.toLowerCase().includes(q)) : this.files;
+    },
   },
   async created() { await this.reload(); },
   methods: {
@@ -51,27 +62,35 @@ const FilePicker = {
       this.selected = v.name;
       this.$emit("select", v);
     },
-    fmtSize, fmtDur,
+    fmtSize, fmtDur, fmtDate,
   },
   template: `
     <div>
       <div class="d-flex justify-content-between align-items-center mb-2">
-        <span class="vc-label">{{ label }}</span>
+        <span class="vc-label">{{ label }} ({{ filtres.length }})</span>
         <button class="btn btn-ghost btn-sm" @click="reload" title="Actualiser">
           <i class="fa-solid fa-rotate"></i>
         </button>
       </div>
+      <div class="position-relative mb-2">
+        <i class="fa-solid fa-magnifying-glass vc-search-icon"></i>
+        <input v-model="query" type="search" class="form-control vc-search"
+               placeholder="Rechercher un fichier…">
+      </div>
       <p v-if="loading" class="text-secondary mb-0">Chargement…</p>
       <p v-else-if="!files.length" class="text-secondary mb-0">{{ vide }}</p>
+      <p v-else-if="!filtres.length" class="text-secondary mb-0">Aucun résultat pour « {{ query }} ».</p>
       <div v-else class="vc-files">
-        <button v-for="v in files" :key="v.name" type="button"
+        <button v-for="(v, i) in filtres" :key="v.name" type="button"
                 class="vc-file" :class="{selected: v.name === selected}"
                 @click="pick(v)">
+          <span class="vc-idx vc-mono">{{ i + 1 }}</span>
           <i class="fa-solid" :class="icone"></i>
           <span class="name">{{ v.name }}</span>
           <span class="meta vc-mono">
             <template v-if="v.duration != null">{{ fmtDur(v.duration) }} · </template>{{ fmtSize(v.size) }}
           </span>
+          <span class="meta vc-mono vc-created">{{ fmtDate(v.created) }}</span>
         </button>
       </div>
     </div>`,
@@ -101,7 +120,10 @@ const TaskProgress = {
       this.timer = setInterval(tick, 800);
     },
     fmtSize,
-    mediaUrl(o) { return API + "/api/media/" + o.type + "/" + encodeURIComponent(o.name); },
+    mediaUrl(o) {
+      if (o.type === "preview") return API + "/api/medley/preview";
+      return API + "/api/media/" + o.type + "/" + encodeURIComponent(o.name);
+    },
     async stopTask() { await axios.post(API + "/api/tasks/" + this.taskId + "/stop"); },
   },
   template: `
@@ -265,6 +287,104 @@ const AudioView = {
         <p v-if="error" class="vc-error mt-3 mb-0">{{ error }}</p>
         <task-progress :task-id="taskId"></task-progress>
       </div>
+    </div>`,
+};
+
+/* ------------------------------------------------ ClipTrimmer (A/B partagé) */
+
+const ClipTrimmer = {
+  props: { file: Object, start: Number, end: Number },
+  emits: ["apply", "close"],
+  data: () => ({
+    thumbs: null, dur: 0, t1s: 0, t2s: 0, cur: 0,
+    t1txt: "0:00", t2txt: "0:00", error: "",
+  }),
+  watch: {
+    file: { immediate: true, async handler() { await this.load(); } },
+  },
+  computed: {
+    videoUrl() { return API + "/api/media/video/" + encodeURIComponent(this.file.name); },
+    selStyle() {
+      if (!this.dur) return {};
+      return {
+        left: (this.t1s / this.dur * 100) + "%",
+        width: (Math.max(0, this.t2s - this.t1s) / this.dur * 100) + "%",
+      };
+    },
+  },
+  methods: {
+    fmtDur,
+    async load() {
+      this.thumbs = null; this.error = "";
+      try {
+        const { data } = await axios.post(API + "/api/thumbnails", { file: this.file.name });
+        this.thumbs = data;
+        this.dur = data.duration;
+        this.setT1(this.start || 0);
+        this.setT2(this.end != null ? this.end : this.dur);
+        this.cur = 0;
+      } catch (e) { this.error = e.response?.data?.error || "Erreur réseau"; }
+    },
+    thumbUrl(i) { return API + "/api/thumb/" + this.thumbs.hash + "/" + i; },
+    seek(ev) {
+      const r = ev.currentTarget.getBoundingClientRect();
+      const t = (ev.clientX - r.left) / r.width * this.dur;
+      const vid = this.$refs.vid;
+      if (vid) vid.currentTime = Math.max(0, Math.min(t, this.dur));
+    },
+    setT1(t) { this.t1s = Math.max(0, Math.min(t, this.dur)); this.t1txt = fmtDur(this.t1s); },
+    setT2(t) { this.t2s = Math.max(0, Math.min(t, this.dur)); this.t2txt = fmtDur(this.t2s); },
+    parseTxt(s) {
+      s = String(s).trim().replace(",", ".");
+      const m = s.match(/^(\d+):([0-5]?\d)$/);
+      if (m) return +m[1] * 60 + +m[2];
+      const f = parseFloat(s);
+      return isNaN(f) ? null : f * 60;
+    },
+    editT1() { const t = this.parseTxt(this.t1txt); if (t != null) this.setT1(t); },
+    editT2() { const t = this.parseTxt(this.t2txt); if (t != null) this.setT2(t); },
+  },
+  template: `
+    <div>
+      <div v-if="thumbs">
+        <video ref="vid" :src="videoUrl" controls class="vc-player"
+               @timeupdate="cur = $event.target.currentTime"></video>
+
+        <div class="vc-timeline mt-2" @click="seek" title="Cliquer pour se déplacer">
+          <img v-for="i in thumbs.count" :key="i" :src="thumbUrl(i)" alt="">
+          <div class="sel" :style="selStyle"></div>
+          <div class="playhead" :style="{left: (dur ? cur/dur*100 : 0) + '%'}"></div>
+        </div>
+        <div class="vc-timecodes vc-mono">
+          <span>0:00</span>
+          <span>lecture : {{ fmtDur(cur) }}</span>
+          <span>{{ fmtDur(dur) }}</span>
+        </div>
+
+        <div class="d-flex gap-2 align-items-end mt-3 flex-wrap">
+          <button class="btn btn-ghost" @click="setT1(cur)">
+            <i class="fa-solid fa-arrow-right-to-bracket me-1"></i>Début ici
+          </button>
+          <button class="btn btn-ghost" @click="setT2(cur)">
+            <i class="fa-solid fa-arrow-right-from-bracket me-1"></i>Fin ici
+          </button>
+          <div>
+            <label class="vc-label d-block mb-1">Début</label>
+            <input v-model="t1txt" @change="editT1" class="form-control vc-mono" style="width:7rem">
+          </div>
+          <div>
+            <label class="vc-label d-block mb-1">Fin</label>
+            <input v-model="t2txt" @change="editT2" class="form-control vc-mono" style="width:7rem">
+          </div>
+          <button class="btn btn-vc" :disabled="t2s <= t1s"
+                  @click="$emit('apply', { t1: t1s, t2: t2s })">
+            <i class="fa-solid fa-check me-1"></i>Valider l'extrait
+            <span class="vc-mono ms-1">({{ fmtDur(t2s - t1s) }})</span>
+          </button>
+          <button class="btn btn-ghost" @click="$emit('close')">Annuler</button>
+        </div>
+      </div>
+      <p v-if="error" class="vc-error mt-3 mb-0">{{ error }}</p>
     </div>`,
 };
 
@@ -819,16 +939,217 @@ const EffectsView = {
     </div>`,
 };
 
+const MedleyView = {
+  components: { FilePicker, TaskProgress, ClipTrimmer },
+  data: () => ({
+    clips: [], transitions: [], catalog: [],
+    defType: "fade", defDur: 1,
+    editIdx: null, dragIdx: null,
+    resolution: "720p", bitrate: "auto",
+    taskId: null, isPreview: false, previewSrc: "", error: "",
+    resolutions: ["480p", "720p", "1080p"],
+    bitrates: [["auto", "Auto (qualité constante)"], ["low", "Faible"],
+               ["medium", "Moyen"], ["high", "Élevé"]],
+  }),
+  async created() {
+    const { data } = await axios.get(API + "/api/medley/transitions");
+    this.catalog = data;
+  },
+  computed: {
+    total() {
+      return this.clips.reduce((s, c) => s + (c.t2 - c.t1), 0)
+           - this.transitions.reduce((s, t) => s + Number(t.duration || 0), 0);
+    },
+    pret() { return this.clips.length >= 2; },
+  },
+  methods: {
+    fmtDur,
+    poster(name) { return API + "/api/poster/video/" + encodeURIComponent(name); },
+    addClip(f) {
+      this.clips.push({ file: f, t1: 0, t2: f.duration || 0 });
+      if (this.clips.length > 1)
+        this.transitions.push({ type: this.defType, duration: this.defDur });
+      this.previewSrc = "";
+    },
+    removeClip(i) {
+      this.clips.splice(i, 1);
+      if (this.transitions.length)
+        this.transitions.splice(Math.min(i, this.transitions.length - 1), 1);
+      if (this.editIdx === i) this.editIdx = null;
+      this.previewSrc = "";
+    },
+    move(i, delta) {
+      const j = i + delta;
+      if (j < 0 || j >= this.clips.length) return;
+      [this.clips[i], this.clips[j]] = [this.clips[j], this.clips[i]];
+      this.previewSrc = "";
+    },
+    onDrop(i) {
+      if (this.dragIdx === null || this.dragIdx === i) return;
+      const c = this.clips.splice(this.dragIdx, 1)[0];
+      this.clips.splice(i, 0, c);
+      this.dragIdx = null;
+      this.editIdx = null;
+      this.previewSrc = "";
+    },
+    applyTrim(i, sel) {
+      this.clips[i].t1 = sel.t1;
+      this.clips[i].t2 = sel.t2;
+      this.editIdx = null;
+      this.previewSrc = "";
+    },
+    applyAll() {
+      this.transitions = this.transitions.map(
+        () => ({ type: this.defType, duration: this.defDur }));
+    },
+    async run(preview) {
+      this.error = ""; this.taskId = null; this.isPreview = preview;
+      if (!preview) this.previewSrc = "";
+      try {
+        const { data } = await axios.post(API + "/api/medley", {
+          clips: this.clips.map(c => ({ file: c.file.name, t1: c.t1, t2: c.t2 })),
+          transitions: this.transitions.map(
+            t => ({ type: t.type, duration: Number(t.duration) || 1 })),
+          resolution: this.resolution, bitrate: this.bitrate, preview,
+        });
+        this.taskId = data.task_id;
+      } catch (e) { this.error = e.response?.data?.error || "Erreur réseau"; }
+    },
+    onDone(t) {
+      if (this.isPreview && t.status === "done")
+        this.previewSrc = API + "/api/medley/preview?ts=" + Date.now();
+    },
+  },
+  template: `
+    <div>
+      <header>
+        <span class="vc-label">Montage</span>
+        <h1>Medley multi-clips</h1>
+        <p>Assemblez plusieurs extraits en une seule vidéo : choisissez les clips,
+           découpez chacun, réglez les transitions, prévisualisez puis exportez.</p>
+      </header>
+
+      <div class="vc-card mb-3">
+        <span class="vc-label d-block mb-2">1 · Ajouter des clips</span>
+        <file-picker @select="addClip"></file-picker>
+      </div>
+
+      <div class="vc-card mb-3" v-if="clips.length">
+        <span class="vc-label d-block mb-2">2 · Ordre et découpage
+          ({{ clips.length }} clip{{ clips.length > 1 ? "s" : "" }},
+          total {{ fmtDur(Math.max(0, total)) }})</span>
+        <div class="vc-files">
+          <template v-for="(c, i) in clips" :key="i">
+            <div class="vc-file vc-clip" draggable="true"
+                 :class="{selected: editIdx === i}"
+                 @dragstart="dragIdx = i" @dragover.prevent @drop="onDrop(i)">
+              <i class="fa-solid fa-grip-vertical" style="cursor:grab"></i>
+              <span class="vc-poster">
+                <i class="fa-solid fa-film"></i>
+                <img :src="poster(c.file.name)" alt="" loading="lazy"
+                     @error="e => e.target.remove()">
+              </span>
+              <span class="name">{{ c.file.name }}</span>
+              <span class="meta vc-mono">{{ fmtDur(c.t1) }} → {{ fmtDur(c.t2) }}
+                ({{ fmtDur(c.t2 - c.t1) }})</span>
+              <button class="btn btn-ghost btn-sm" title="Découper l'extrait"
+                      @click="editIdx = editIdx === i ? null : i">
+                <i class="fa-solid fa-scissors"></i>
+              </button>
+              <button class="btn btn-ghost btn-sm" :disabled="i === 0"
+                      title="Monter" @click="move(i, -1)">
+                <i class="fa-solid fa-chevron-up"></i>
+              </button>
+              <button class="btn btn-ghost btn-sm" :disabled="i === clips.length - 1"
+                      title="Descendre" @click="move(i, 1)">
+                <i class="fa-solid fa-chevron-down"></i>
+              </button>
+              <button class="btn btn-ghost btn-sm" title="Retirer"
+                      @click="removeClip(i)">
+                <i class="fa-solid fa-xmark"></i>
+              </button>
+            </div>
+            <div v-if="editIdx === i" class="vc-trim-panel">
+              <clip-trimmer :file="c.file" :start="c.t1" :end="c.t2"
+                            @apply="sel => applyTrim(i, sel)"
+                            @close="editIdx = null"></clip-trimmer>
+            </div>
+            <div v-if="i < clips.length - 1" class="vc-transition-row vc-mono">
+              <i class="fa-solid fa-arrow-down"></i>
+              <select v-model="transitions[i].type" class="form-select form-select-sm"
+                      style="width:auto" @change="previewSrc = ''">
+                <option v-for="t in catalog" :key="t.id" :value="t.id">{{ t.label }}</option>
+              </select>
+              <input v-model.number="transitions[i].duration" type="number"
+                     min="0.5" max="3" step="0.5" class="form-control form-control-sm"
+                     style="width:5rem" @change="previewSrc = ''"> s
+            </div>
+          </template>
+        </div>
+        <div class="d-flex gap-2 align-items-center mt-3 flex-wrap"
+             v-if="transitions.length > 1">
+          <span class="vc-label">Transition par défaut</span>
+          <select v-model="defType" class="form-select form-select-sm" style="width:auto">
+            <option v-for="t in catalog" :key="t.id" :value="t.id">{{ t.label }}</option>
+          </select>
+          <input v-model.number="defDur" type="number" min="0.5" max="3" step="0.5"
+                 class="form-control form-control-sm" style="width:5rem">
+          <button class="btn btn-ghost btn-sm" @click="applyAll">Appliquer à tous</button>
+        </div>
+      </div>
+
+      <div class="vc-card" v-if="clips.length">
+        <span class="vc-label d-block mb-2">3 · Aperçu et export</span>
+        <div class="d-flex gap-2 align-items-end flex-wrap">
+          <button class="btn btn-ghost" :disabled="!pret" @click="run(true)"
+                  title="Rendu rapide basse résolution (5 s max par clip)">
+            <i class="fa-solid fa-eye me-1"></i>Prévisualiser
+          </button>
+          <div>
+            <label class="vc-label d-block mb-1">Résolution</label>
+            <select v-model="resolution" class="form-select" style="width:auto">
+              <option v-for="r in resolutions" :key="r" :value="r">{{ r }}</option>
+            </select>
+          </div>
+          <div>
+            <label class="vc-label d-block mb-1">Débit</label>
+            <select v-model="bitrate" class="form-select" style="width:auto">
+              <option v-for="[v, l] in bitrates" :key="v" :value="v">{{ l }}</option>
+            </select>
+          </div>
+          <button class="btn btn-vc" :disabled="!pret" @click="run(false)">
+            <i class="fa-solid fa-clapperboard me-1"></i>Exporter le medley
+            <span class="vc-mono ms-1">({{ fmtDur(Math.max(0, total)) }})</span>
+          </button>
+        </div>
+        <p v-if="!pret" class="vc-warning mt-2 mb-0">Ajoutez au moins 2 clips.</p>
+        <p v-if="error" class="vc-error mt-3 mb-0">{{ error }}</p>
+        <task-progress :task-id="taskId" @done="onDone"></task-progress>
+        <div v-if="previewSrc" class="mt-3">
+          <span class="vc-label d-block mb-2">Aperçu (basse résolution, 5 s max par clip)</span>
+          <video :src="previewSrc" controls autoplay muted class="vc-player"></video>
+        </div>
+      </div>
+    </div>`,
+};
+
 const LibraryView = {
-  data: () => ({ videos: [], audios: [], exports: [] }),
+  data: () => ({ videos: [], audios: [], exports: [], query: "" }),
   async created() {
     const { data } = await axios.get(API + "/api/files");
     this.videos = data.videos;
     this.audios = data.audios;
     this.exports = data.exports || [];
   },
+  computed: {
+    match() {
+      const q = this.query.trim().toLowerCase();
+      const f = liste => q ? liste.filter(x => x.name.toLowerCase().includes(q)) : liste;
+      return { videos: f(this.videos), audios: f(this.audios), exports: f(this.exports) };
+    },
+  },
   methods: {
-    fmtSize, fmtDur,
+    fmtSize, fmtDur, fmtDate,
     url(type, name) { return API + "/api/media/" + type + "/" + encodeURIComponent(name); },
     poster(type, name) { return API + "/api/poster/" + type + "/" + encodeURIComponent(name); },
   },
@@ -839,11 +1160,20 @@ const LibraryView = {
         <h1>Bibliothèque</h1>
         <p>Tout ce que l'atelier a produit : vidéos dans downloads, pistes dans audio.</p>
       </header>
+
+      <div class="position-relative mb-3">
+        <i class="fa-solid fa-magnifying-glass vc-search-icon"></i>
+        <input v-model="query" type="search" class="form-control vc-search"
+               placeholder="Rechercher dans toute la bibliothèque…">
+      </div>
+
       <div class="vc-card mb-3">
-        <span class="vc-label d-block mb-2">Vidéos ({{ videos.length }})</span>
-        <div class="vc-files">
-          <a v-for="v in videos" :key="v.name" class="vc-file text-decoration-none"
+        <span class="vc-label d-block mb-2">Vidéos ({{ match.videos.length }})</span>
+        <p v-if="!match.videos.length" class="text-secondary mb-0">Aucun résultat.</p>
+        <div v-else class="vc-files">
+          <a v-for="(v, i) in match.videos" :key="v.name" class="vc-file text-decoration-none"
              :href="url('video', v.name)" target="_blank">
+            <span class="vc-idx vc-mono">{{ i + 1 }}</span>
             <span class="vc-poster">
               <i class="fa-solid fa-film"></i>
               <img :src="poster('video', v.name)" alt="" loading="lazy"
@@ -851,14 +1181,17 @@ const LibraryView = {
             </span>
             <span class="name">{{ v.name }}</span>
             <span class="meta vc-mono">{{ fmtDur(v.duration) }} · {{ fmtSize(v.size) }}</span>
+            <span class="meta vc-mono vc-created">{{ fmtDate(v.created) }}</span>
           </a>
         </div>
       </div>
       <div class="vc-card mb-3">
-        <span class="vc-label d-block mb-2">Audios ({{ audios.length }})</span>
-        <div class="vc-files">
-          <a v-for="a in audios" :key="a.name" class="vc-file text-decoration-none"
+        <span class="vc-label d-block mb-2">Audios ({{ match.audios.length }})</span>
+        <p v-if="!match.audios.length" class="text-secondary mb-0">Aucun résultat.</p>
+        <div v-else class="vc-files">
+          <a v-for="(a, i) in match.audios" :key="a.name" class="vc-file text-decoration-none"
              :href="url('audio', a.name)" target="_blank">
+            <span class="vc-idx vc-mono">{{ i + 1 }}</span>
             <span class="vc-poster">
               <i class="fa-solid fa-music"></i>
               <img :src="poster('audio', a.name)" alt="" loading="lazy"
@@ -866,17 +1199,21 @@ const LibraryView = {
             </span>
             <span class="name">{{ a.name }}</span>
             <span class="meta vc-mono">{{ fmtSize(a.size) }}</span>
+            <span class="meta vc-mono vc-created">{{ fmtDate(a.created) }}</span>
           </a>
         </div>
       </div>
       <div class="vc-card" v-if="exports.length">
-        <span class="vc-label d-block mb-2">Exports d'images ({{ exports.length }})</span>
-        <div class="vc-files">
-          <a v-for="e in exports" :key="e.name" class="vc-file text-decoration-none"
+        <span class="vc-label d-block mb-2">Exports d'images ({{ match.exports.length }})</span>
+        <p v-if="!match.exports.length" class="text-secondary mb-0">Aucun résultat.</p>
+        <div v-else class="vc-files">
+          <a v-for="(e, i) in match.exports" :key="e.name" class="vc-file text-decoration-none"
              :href="url('video', e.name)" target="_blank">
+            <span class="vc-idx vc-mono">{{ i + 1 }}</span>
             <i class="fa-solid fa-file-zipper"></i>
             <span class="name">{{ e.name }}</span>
             <span class="meta vc-mono">{{ fmtSize(e.size) }}</span>
+            <span class="meta vc-mono vc-created">{{ fmtDate(e.created) }}</span>
           </a>
         </div>
       </div>
@@ -893,6 +1230,7 @@ const router = createRouter({
     { path: "/convert", component: ConvertView },
     { path: "/audio", component: AudioView },
     { path: "/cut", component: CutView },
+    { path: "/medley", component: MedleyView },
     { path: "/radio", component: RadioView },
     { path: "/frames", component: FramesView },
     { path: "/music", component: MusicView },

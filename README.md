@@ -12,6 +12,7 @@ progression des traitements en temps réel.
 | 💬 **Réseaux sociaux** | Conversion WhatsApp/Instagram : H.264 + AAC, `yuv420p`, `faststart`, débit calculé selon la durée pour viser < 16 Mo |
 | 🎵 **Extraction audio** | Piste audio d'une vidéo en mp3, aac, ogg, wav ou flac |
 | ✂️ **Découpage** | Extrait de t1 à t2 (minutes décimales `1.5` ou `mm:ss`), coupe précise à l'image |
+| 🎬 **Medley** | Assemble 2 à 12 extraits en une vidéo : ordre par glisser-déposer, découpage A/B par clip, transition xfade réglable entre chaque clip, aperçu rapide basse résolution, export 480p/720p/1080p |
 | 📻 **Radio** | 18 stations marocaines intégrées, recherche dans l'annuaire mondial Radio Browser, favoris ⭐ (localStorage), flux personnalisé : écoute en direct (titre en cours via ICY) et enregistrement MP3 avec arrêt anticipé |
 | 🖼️ **Images** | Découpe la vidéo en images JPEG/PNG (1 toutes les N secondes), livrées en ZIP |
 | 🎼 **Bande musicale** | Associe un audio à une vidéo : remplacement ou mixage avec le son d'origine |
@@ -20,7 +21,11 @@ progression des traitements en temps réel.
 | 📂 **Bibliothèque** | Tous les fichiers produits, consultables en un clic, avec vignette (image de la vidéo, pochette de l'audio) |
 
 Les vidéos vont dans `downloads/`, les audios dans `audio/`. Aucun fichier
-n'est jamais écrasé (suffixes `_1`, `_2`, …).
+n'est jamais écrasé (suffixes `_1`, `_2`, …). Partout où l'on choisit un
+fichier (découpage, medley, images, bande musicale, titre, effets,
+extraction audio) comme dans la Bibliothèque : un champ de recherche filtre
+la liste par nom, chaque ligne est numérotée et affiche sa date de création,
+la liste est triée du plus récent au plus ancien.
 
 Les encodages passent par une **file d'attente** (2 ffmpeg simultanés par
 défaut, variable d'environnement `ENCODERS` pour ajuster) : les tâches
@@ -75,6 +80,9 @@ Toutes les opérations longues renvoient un `task_id` à interroger sur
 | `/api/convert` | POST | `{file}` |
 | `/api/audio/extract` | POST | `{file, format}` |
 | `/api/cut` | POST | `{file, t1, t2}` (secondes) |
+| `/api/medley` | POST | `{clips: [{file, t1, t2}], transitions: [{type, duration}], resolution, bitrate, preview}` |
+| `/api/medley/transitions` | GET | — |
+| `/api/medley/preview` | GET | — (dernier aperçu généré) |
 | `/api/radio/stations` | GET | — |
 | `/api/radio/search` | GET | `?q=<nom>` (annuaire Radio Browser) |
 | `/api/radio/nowplaying` | GET | `?url=<flux>` |
