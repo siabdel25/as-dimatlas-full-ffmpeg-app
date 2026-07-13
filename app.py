@@ -47,6 +47,7 @@ CONFIG_DEFAULTS = {
     "pochette_resolution": 500,  # largeur en px (scale=X:-2)
     "nb_encodeurs": None,        # None = pas de préférence -> fallback env ENCODERS / défaut
     "nb_miniatures": 16,
+    "qualite_video": "equilibre",
 }
 
 BORNES_SETTINGS = {
@@ -54,6 +55,28 @@ BORNES_SETTINGS = {
     "nb_encodeurs": (1, 8),
     "nb_miniatures": (4, 40),
 }
+
+# Un seul contrôle qualitatif (pas de CRF/preset bruts exposés en UI —
+# décision Design) qui pilote vitesse/qualité d'encodage x264 ET le débit
+# audio par défaut. `crf` ne s'applique qu'aux sites qui encodent déjà en
+# mode CRF ; `preset` s'applique aussi à Conversion réseaux sociaux et à la
+# branche débit explicite du Medley (orthogonal au mode bitrate) ;
+# `audio_kbps` ne s'applique PAS à Conversion réseaux sociaux (son débit
+# audio est déjà compté dans le calcul du budget <16 Mo) ni à l'aperçu
+# Medley (reste rapide par construction, jamais affecté par ce réglage).
+QUALITES_VIDEO = {
+    "leger":     {"crf": 28, "preset": "fast",   "audio_kbps": 96},
+    "equilibre": {"crf": 22, "preset": "medium", "audio_kbps": 128},
+    "max":       {"crf": 18, "preset": "slow",   "audio_kbps": 192},
+}
+
+
+def _qualite_video():
+    """Valeurs qualité effectives (crf/preset/audio_kbps). Fallback sur
+    "equilibre" si CONFIG contient une clé invalide (édition manuelle
+    ratée) — appelée au call-time (pas au chargement du module), donc une
+    valeur corrompue ne peut jamais empêcher un export vidéo de démarrer."""
+    return QUALITES_VIDEO.get(CONFIG.get("qualite_video"), QUALITES_VIDEO["equilibre"])
 
 
 def _charger_config():
@@ -287,6 +310,13 @@ def valider_settings(payload):
         else:
             erreurs.append("pochette_auto doit être un booléen")
 
+    if "qualite_video" in payload:
+        if payload["qualite_video"] in QUALITES_VIDEO:
+            valeurs["qualite_video"] = payload["qualite_video"]
+        else:
+            erreurs.append(
+                f"qualite_video doit être l'un de {', '.join(QUALITES_VIDEO)}")
+
     for cle in ("pochette_resolution", "nb_encodeurs", "nb_miniatures"):
         if cle in payload:
             v = payload[cle]
@@ -304,10 +334,17 @@ def valider_settings(payload):
 
 
 def _settings_effectifs():
+    # Clé normalisée : si CONFIG contient une valeur invalide (édition
+    # manuelle ratée), on expose "equilibre" plutôt que la valeur brute —
+    # cohérent avec le fallback silencieux de _qualite_video().
+    qualite = CONFIG.get("qualite_video")
+    if qualite not in QUALITES_VIDEO:
+        qualite = "equilibre"
     return {
         "pochette_auto": CONFIG["pochette_auto"],
         "pochette_resolution": CONFIG["pochette_resolution"],
         "nb_miniatures": CONFIG["nb_miniatures"],
+        "qualite_video": qualite,
         "nb_encodeurs": {
             "active": NB_ENCODEURS,
             "configured": CONFIG.get("nb_encodeurs") or NB_ENCODEURS,
@@ -466,7 +503,13 @@ def convertir():
     task_id = new_task("convert")
 
     def travail():
+        # -crf et le débit audio restent volontairement exclus du réglage
+        # qualité global : le calcul ci-dessous garantit <16 Mo en
+        # réservant un débit audio fixe dans le budget total, changer l'un
+        # sans recalculer l'autre romprait cette garantie de taille.
+        # -preset reste orthogonal (vitesse/efficacité, pas la taille).
         debit = max(300, min(int(14 * 8192 / duree) - 96, 2000))
+        preset = _qualite_video()["preset"]
         sortie = chemin_sans_ecrasement(
             os.path.splitext(source)[0] + "_whatsapp.mp4")
         ok = lancer_ffmpeg(task_id, [
@@ -475,7 +518,7 @@ def convertir():
             "-pix_fmt", "yuv420p",
             "-b:v", f"{debit}k", "-maxrate", f"{int(debit * 1.2)}k",
             "-bufsize", f"{debit * 2}k",
-            "-preset", "medium", "-r", "30",
+            "-preset", preset, "-r", "30",
             "-c:a", "aac", "-b:a", "96k", "-ar", "44100",
             "-movflags", "+faststart",
         ], sortie, duree)
@@ -619,15 +662,16 @@ def decouper():
     task_id = new_task("cut")
 
     def travail():
+        q = _qualite_video()
         etiquette = f"{t1 / 60:g}m-{t2 / 60:g}m".replace(".", "_")
         sortie = chemin_sans_ecrasement(
             f"{os.path.splitext(source)[0]}_extrait_{etiquette}.mp4")
         # Ré-encodage (pas de -c copy) pour une coupe précise hors images clés.
         if lancer_ffmpeg(task_id, [
             "-ss", f"{t1:.3f}", "-to", f"{t2:.3f}", "-i", source,
-            "-c:v", "libx264", "-crf", "22", "-preset", "medium",
+            "-c:v", "libx264", "-crf", str(q["crf"]), "-preset", q["preset"],
             "-pix_fmt", "yuv420p",
-            "-c:a", "aac", "-b:a", "128k",
+            "-c:a", "aac", "-b:a", f"{q['audio_kbps']}k",
             "-movflags", "+faststart",
         ], sortie, t2 - t1):
             terminer(task_id, sortie)
@@ -886,6 +930,8 @@ def bande_musicale():
     task_id = new_task("music")
 
     def travail():
+        # Pas de -crf/-preset ici : -c:v copy, aucun ré-encodage vidéo.
+        audio_kbps = _qualite_video()["audio_kbps"]
         sortie = chemin_sans_ecrasement(
             os.path.splitext(video)[0] + "_musique.mp4")
         if mode == "replace":
@@ -896,7 +942,7 @@ def bande_musicale():
                     "-filter_complex",
                     "[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=2",
                     "-map", "0:v", "-c:v", "copy"]
-        args += ["-c:a", "aac", "-b:a", "192k", "-shortest",
+        args += ["-c:a", "aac", "-b:a", f"{audio_kbps}k", "-shortest",
                  "-movflags", "+faststart"]
         if lancer_ffmpeg(task_id, args, sortie, duree):
             terminer(task_id, sortie)
@@ -925,6 +971,8 @@ def incruster_texte():
     task_id = new_task("text")
 
     def travail():
+        # Pas d'audio_kbps ici : -c:a copy, aucun ré-encodage audio.
+        q = _qualite_video()
         # textfile= évite tout échappement du texte dans le filtre drawtext
         with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False,
                                          encoding="utf-8") as f:
@@ -939,7 +987,7 @@ def incruster_texte():
             os.path.splitext(source)[0] + "_titre.mp4")
         ok = lancer_ffmpeg(task_id, [
             "-i", source, "-vf", filtre,
-            "-c:v", "libx264", "-crf", "22", "-preset", "medium",
+            "-c:v", "libx264", "-crf", str(q["crf"]), "-preset", q["preset"],
             "-pix_fmt", "yuv420p",
             "-c:a", "copy", "-movflags", "+faststart",
         ], sortie, duree)
@@ -1010,6 +1058,7 @@ def effet_video():
     task_id = new_task("effects")
 
     def travail():
+        q = _qualite_video()
         w, h, fps, audio = infos
         # L'effet est un xfade entre un carton noir et la vidéo (et/ou l'inverse
         # en fin) : toutes les transitions xfade deviennent des effets d'intro.
@@ -1035,11 +1084,11 @@ def effet_video():
         maps = ["-map", "[vout]"]
         if audio:
             graphe += f";[0:a]{','.join(fa)}[aout]"
-            maps += ["-map", "[aout]", "-c:a", "aac", "-b:a", "128k"]
+            maps += ["-map", "[aout]", "-c:a", "aac", "-b:a", f"{q['audio_kbps']}k"]
         sortie = chemin_sans_ecrasement(
             f"{os.path.splitext(source)[0]}_effet_{effet}.mp4")
         if lancer_ffmpeg(task_id, args + ["-filter_complex", graphe] + maps + [
-            "-c:v", "libx264", "-crf", "22", "-preset", "medium",
+            "-c:v", "libx264", "-crf", str(q["crf"]), "-preset", q["preset"],
             "-movflags", "+faststart",
         ], sortie, duree):
             terminer(task_id, sortie)
@@ -1162,22 +1211,29 @@ def creer_medley():
             va, aa = outv, outa
             offset += clips[i + 1]["ext"]
         if apercu:
+            # Aperçu : volontairement exclu du réglage qualité global —
+            # doit rester rapide par construction, jamais affecté.
             enc = ["-c:v", "libx264", "-crf", "30", "-preset", "ultrafast"]
+            audio_kbps = 128
             os.makedirs(MINIATURES_DIR, exist_ok=True)
             sortie = os.path.join(MINIATURES_DIR, APERCU_MEDLEY)
         else:
+            q = _qualite_video()
+            audio_kbps = q["audio_kbps"]
             if debit == "auto":
-                enc = ["-c:v", "libx264", "-crf", "22", "-preset", "medium"]
+                enc = ["-c:v", "libx264", "-crf", str(q["crf"]), "-preset", q["preset"]]
             else:
+                # Mode bitrate (résolution/débit choisis par tâche) : pas de
+                # -crf (incompatible avec -b:v), seul le preset s'applique.
                 k = DEBITS_MEDLEY[debit][resolution]
                 enc = ["-c:v", "libx264", "-b:v", f"{k}k",
                        "-maxrate", f"{int(k * 1.5)}k", "-bufsize", f"{k * 3}k",
-                       "-preset", "medium"]
+                       "-preset", q["preset"]]
             sortie = chemin_sans_ecrasement(
                 os.path.join(DOWNLOADS_DIR, f"medley_{len(clips)}clips.mp4"))
         if lancer_ffmpeg(task_id, args + [
             "-filter_complex", ";".join(fv), "-map", "[vout]", "-map", "[aout]",
-        ] + enc + ["-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart"],
+        ] + enc + ["-c:a", "aac", "-b:a", f"{audio_kbps}k", "-movflags", "+faststart"],
                 sortie, duree_totale):
             if apercu:
                 update_task(task_id, status="done", progress=100,

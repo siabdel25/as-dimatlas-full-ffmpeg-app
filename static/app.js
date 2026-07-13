@@ -272,6 +272,10 @@ const ConvertView = {
       </header>
       <div class="vc-card">
         <file-picker @select="f => { file = f; taskId = null }"></file-picker>
+        <p class="text-secondary small mt-2 mb-0">
+          Taille cible fixe — le réglage Qualité d'encodage des Paramètres
+          n'est pas utilisé ici.
+        </p>
         <button class="btn btn-vc mt-3" :disabled="!file" @click="convert">
           <i class="fa-brands fa-whatsapp me-1"></i>Convertir
         </button>
@@ -1211,6 +1215,12 @@ const MedleyView = {
             <span class="vc-mono ms-1">({{ fmtDur(Math.max(0, total)) }})</span>
           </button>
         </div>
+        <p class="text-secondary small mt-2 mb-0">
+          L'aperçu reste toujours rapide/basse qualité (réglage Qualité
+          d'encodage des Paramètres non utilisé ici). Débit « Auto » utilise
+          ce réglage ; un débit explicite l'ignore pour la taille de fichier
+          mais garde la vitesse d'encodage choisie.
+        </p>
         <p v-if="!pret" class="vc-warning mt-2 mb-0">Ajoutez au moins 2 clips.</p>
         <p v-if="error" class="vc-error mt-3 mb-0">{{ error }}</p>
         <task-progress :task-id="taskId" @done="onDone"></task-progress>
@@ -1222,11 +1232,18 @@ const MedleyView = {
     </div>`,
 };
 
+const QUALITES_VIDEO = [
+  { value: "leger", label: "Fichiers légers", detail: "CRF 28 · encodage rapide" },
+  { value: "equilibre", label: "Équilibré", detail: "CRF 22 · recommandé" },
+  { value: "max", label: "Qualité maximale", detail: "CRF 18 · encodage plus lent" },
+];
+
 const SettingsView = {
   data: () => ({
     loaded: false, saving: false, error: "", success: false,
-    restartRequired: false, nbEncodeursActif: 2,
-    form: { pochette_auto: true, pochette_resolution: 500, nb_encodeurs: 2, nb_miniatures: 16 },
+    restartRequired: false, nbEncodeursActif: 2, qualitesVideo: QUALITES_VIDEO,
+    form: { pochette_auto: true, pochette_resolution: 500, nb_encodeurs: 2,
+           nb_miniatures: 16, qualite_video: "equilibre" },
   }),
   async created() {
     const { data } = await axios.get(API + "/api/settings");
@@ -1238,6 +1255,7 @@ const SettingsView = {
       this.form.pochette_auto = data.pochette_auto;
       this.form.pochette_resolution = data.pochette_resolution;
       this.form.nb_miniatures = data.nb_miniatures;
+      this.form.qualite_video = data.qualite_video;
       this.form.nb_encodeurs = data.nb_encodeurs.configured;
       this.nbEncodeursActif = data.nb_encodeurs.active;
     },
@@ -1288,6 +1306,27 @@ const SettingsView = {
             <input id="nbMiniatures" type="number" class="form-control" style="max-width:160px"
                    min="4" max="40" v-model.number="form.nb_miniatures">
           </div>
+
+          <hr class="my-3">
+          <span class="vc-label d-block mb-1">Qualité d'encodage</span>
+          <select class="form-select" style="max-width:260px" v-model="form.qualite_video">
+            <option v-for="q in qualitesVideo" :key="q.value" :value="q.value">{{ q.label }}</option>
+          </select>
+          <p class="text-secondary small mt-1 mb-2">
+            {{ qualitesVideo.find(q => q.value === form.qualite_video)?.detail }}
+          </p>
+          <p class="vc-warning mb-2">
+            S'applique à Découpage, Titre, Effets et Medley (rendu final). Ne
+            s'applique pas à la Conversion réseaux sociaux (taille cible fixe)
+            ni à l'aperçu rapide du Medley (volontairement dégradé). Un réglage
+            plus lent ralentit l'ensemble de la file d'encodage, pas seulement
+            l'export en cours.
+          </p>
+          <p v-if="form.qualite_video === 'max'" class="vc-warning mb-0">
+            <i class="fa-solid fa-triangle-exclamation me-1"></i>
+            Fichiers plus volumineux et encodage plus lent — pertinent pour de
+            courts extraits.
+          </p>
         </div>
 
         <div class="vc-card mb-3 vc-settings-restart">
