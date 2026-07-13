@@ -15,10 +15,12 @@ Endpoints :
 Lancement : .venv/bin/python app.py  →  http://localhost:5000
 """
 
+import base64
 import os
 import queue
 import re
 import subprocess
+import tempfile
 import threading
 import uuid
 
@@ -37,6 +39,11 @@ AUDIO_FORMATS = {
     "wav":  {"ext": "wav",  "args": ["-c:a", "pcm_s16le"]},
     "flac": {"ext": "flac", "args": ["-c:a", "flac"]},
 }
+
+# Conteneurs sachant embarquer une image de pochette (attached_pic) : wav n'a
+# pas de mécanisme standard de métadonnées image, et ogg/vorbis refuse le
+# flux mjpeg en attached_pic (Unsupported codec id in stream).
+FORMATS_POCHETTE = {"mp3", "aac", "flac"}
 
 # Stations avec une URL de flux directe (les pages web sans flux sont exclues).
 RADIO_STATIONS = [
@@ -132,15 +139,25 @@ def chemin_sans_ecrasement(chemin):
     return f"{base}_{n}{ext}"
 
 
+CACHE_DUREE = {}  # chemin -> (mtime, duree) ; évite de rappeler ffprobe sur
+                  # un fichier inchangé à chaque rafraîchissement de la liste.
+
+
 def duree_video(chemin):
+    mtime = os.path.getmtime(chemin)
+    en_cache = CACHE_DUREE.get(chemin)
+    if en_cache and en_cache[0] == mtime:
+        return en_cache[1]
     res = subprocess.run(
         ["ffprobe", "-v", "error", "-show_entries", "format=duration",
          "-of", "default=noprint_wrappers=1:nokey=1", chemin],
         capture_output=True, text=True)
     try:
-        return float(res.stdout.strip())
+        duree = float(res.stdout.strip())
     except ValueError:
-        return None
+        duree = None
+    CACHE_DUREE[chemin] = (mtime, duree)
+    return duree
 
 
 def lancer_ffmpeg(task_id, args, sortie, duree_totale):
@@ -190,25 +207,32 @@ def index():
     return send_from_directory("static", "index.html")
 
 
+def parcourir(racine, ignorer_dirs=()):
+    """Parcourt racine récursivement, donnant (chemin_absolu, nom_relatif)."""
+    if not os.path.isdir(racine):
+        return
+    for base, dirs, fichiers in os.walk(racine):
+        dirs[:] = [d for d in sorted(dirs) if d not in ignorer_dirs]
+        for f in sorted(fichiers):
+            chemin = os.path.join(base, f)
+            relatif = os.path.relpath(chemin, racine).replace(os.sep, "/")
+            yield chemin, relatif
+
+
 @app.get("/api/files")
 def liste_fichiers():
     videos, audios, exports = [], [], []
-    for f in sorted(os.listdir(DOWNLOADS_DIR)) if os.path.isdir(DOWNLOADS_DIR) else []:
-        chemin = os.path.join(DOWNLOADS_DIR, f)
-        if not os.path.isfile(chemin):
-            continue
-        if f.lower().endswith(VIDEO_EXTS):
-            videos.append({"name": f, "size": os.path.getsize(chemin),
+    for chemin, relatif in parcourir(DOWNLOADS_DIR, ignorer_dirs=(".miniatures",)):
+        if relatif.lower().endswith(VIDEO_EXTS):
+            videos.append({"name": relatif, "size": os.path.getsize(chemin),
                            "duration": duree_video(chemin),
                            "created": os.path.getmtime(chemin)})
-        elif f.lower().endswith(".zip"):
-            exports.append({"name": f, "size": os.path.getsize(chemin),
+        elif relatif.lower().endswith(".zip"):
+            exports.append({"name": relatif, "size": os.path.getsize(chemin),
                             "created": os.path.getmtime(chemin)})
-    for f in sorted(os.listdir(AUDIO_DIR)) if os.path.isdir(AUDIO_DIR) else []:
-        chemin = os.path.join(AUDIO_DIR, f)
-        if os.path.isfile(chemin):
-            audios.append({"name": f, "size": os.path.getsize(chemin),
-                           "created": os.path.getmtime(chemin)})
+    for chemin, relatif in parcourir(AUDIO_DIR):
+        audios.append({"name": relatif, "size": os.path.getsize(chemin),
+                       "created": os.path.getmtime(chemin)})
     # Plus récent en premier : c'est l'ordre le plus utile dans une
     # bibliothèque qui ne fait que grossir.
     for liste in (videos, audios, exports):
@@ -329,13 +353,75 @@ def convertir():
     return jsonify({"task_id": task_id})
 
 
+def extraire_pochette(chemin, duree):
+    """Image de la vidéo (à 10 % de la durée) à embarquer comme pochette
+    audio ; None si l'extraction échoue (vidéo sans piste vidéo, etc.)."""
+    tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+    tmp.close()
+    try:
+        subprocess.run(
+            ["ffmpeg", "-y", "-v", "error", "-ss", f"{duree * 0.1:.2f}",
+             "-i", chemin, "-frames:v", "1", "-vf", "scale=500:-2", tmp.name],
+            capture_output=True)
+    except OSError:
+        os.unlink(tmp.name)
+        raise
+    if not os.path.getsize(tmp.name):
+        os.unlink(tmp.name)
+        return None
+    return tmp.name
+
+
+EXTENSIONS_IMAGE = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
+
+
+def decoder_pochette_personnalisee(cover_b64, cover_mime):
+    """Décode une image de pochette envoyée en base64 par le front (choisie
+    par l'utilisateur) et la reconvertit en jpeg 500px (même format que
+    extraire_pochette, pour un codec attached_pic compatible partout) ;
+    None si invalide."""
+    ext = EXTENSIONS_IMAGE.get(cover_mime)
+    if not ext:
+        return None
+    try:
+        brut = base64.b64decode(cover_b64, validate=True)
+    except (ValueError, TypeError):
+        return None
+    if not brut:
+        return None
+    src = tempfile.NamedTemporaryFile(suffix=ext, delete=False)
+    src.write(brut)
+    src.close()
+    tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+    tmp.close()
+    try:
+        subprocess.run(
+            ["ffmpeg", "-y", "-v", "error", "-i", src.name,
+             "-frames:v", "1", "-vf", "scale=500:-2", tmp.name],
+            capture_output=True)
+    except OSError:
+        os.unlink(tmp.name)
+        raise
+    finally:
+        os.unlink(src.name)
+    if not os.path.getsize(tmp.name):
+        os.unlink(tmp.name)
+        return None
+    return tmp.name
+
+
 @app.post("/api/audio/extract")
 def extraire_audio():
     data = request.json or {}
     source = fichier_video_valide(data.get("file", ""))
-    fmt = AUDIO_FORMATS.get(data.get("format", "mp3"))
+    fmt_id = data.get("format", "mp3")
+    fmt = AUDIO_FORMATS.get(fmt_id)
     if not source or not fmt:
         return jsonify({"error": "Fichier ou format invalide"}), 400
+    cover_b64 = data.get("cover_b64")
+    cover_mime = data.get("cover_mime")
+    if cover_b64 and cover_mime not in EXTENSIONS_IMAGE:
+        return jsonify({"error": "Format d'image de pochette non supporté"}), 400
     task_id = new_task("audio")
     duree = duree_video(source)
 
@@ -344,9 +430,30 @@ def extraire_audio():
         nom = os.path.splitext(os.path.basename(source))[0]
         sortie = chemin_sans_ecrasement(
             os.path.join(AUDIO_DIR, f"{nom}.{fmt['ext']}"))
-        if lancer_ffmpeg(task_id, ["-i", source, "-vn", "-map", "a"]
-                         + fmt["args"], sortie, duree):
-            terminer(task_id, sortie)
+        pochette = None
+        if fmt_id in FORMATS_POCHETTE:
+            if cover_b64:
+                pochette = decoder_pochette_personnalisee(cover_b64, cover_mime)
+            elif duree:
+                pochette = extraire_pochette(source, duree)
+        try:
+            if pochette:
+                args = ["-i", source, "-i", pochette,
+                        "-map", "0:a", "-map", "1:0",
+                        "-c:v", "copy", "-disposition:v", "attached_pic"] \
+                       + fmt["args"] + ["-metadata", f"title={nom}"]
+                if fmt_id == "mp3":
+                    args += ["-id3v2_version", "3",
+                             "-metadata:s:v", "title=Album cover",
+                             "-metadata:s:v", "comment=Cover (front)"]
+            else:
+                args = ["-i", source, "-vn", "-map", "a"] + fmt["args"] \
+                       + ["-metadata", f"title={nom}"]
+            if lancer_ffmpeg(task_id, args, sortie, duree):
+                terminer(task_id, sortie)
+        finally:
+            if pochette:
+                os.unlink(pochette)
 
     soumettre_encodage(task_id, travail)
     return jsonify({"task_id": task_id})

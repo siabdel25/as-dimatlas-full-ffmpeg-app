@@ -32,9 +32,12 @@ function fmtDate(ts) {
 /* ---------------------------------------------------------- FilePicker */
 
 const FilePicker = {
-  props: { kind: { type: String, default: "videos" } },
+  props: {
+    kind: { type: String, default: "videos" },
+    multi: { type: Boolean, default: false },
+  },
   emits: ["select"],
-  data: () => ({ files: [], selected: null, loading: true, query: "" }),
+  data: () => ({ files: [], selected: null, checked: [], loading: true, query: "" }),
   computed: {
     label() {
       return this.kind === "audios" ? "Audios dans audio/" : "Vidéos dans downloads/";
@@ -49,6 +52,9 @@ const FilePicker = {
       const q = this.query.trim().toLowerCase();
       return q ? this.files.filter(f => f.name.toLowerCase().includes(q)) : this.files;
     },
+    toutCoche() {
+      return this.filtres.length > 0 && this.filtres.every(f => this.checked.includes(f.name));
+    },
   },
   async created() { await this.reload(); },
   methods: {
@@ -56,11 +62,28 @@ const FilePicker = {
       this.loading = true;
       const { data } = await axios.get(API + "/api/files");
       this.files = data[this.kind];
+      this.checked = this.checked.filter(n => this.files.some(f => f.name === n));
       this.loading = false;
     },
     pick(v) {
       this.selected = v.name;
       this.$emit("select", v);
+    },
+    estCoche(v) { return this.checked.includes(v.name); },
+    basculer(v) {
+      const i = this.checked.indexOf(v.name);
+      if (i === -1) this.checked.push(v.name); else this.checked.splice(i, 1);
+      this.$emit("select", this.files.filter(f => this.checked.includes(f.name)));
+    },
+    basculerTout() {
+      if (this.toutCoche) {
+        const noms = new Set(this.filtres.map(f => f.name));
+        this.checked = this.checked.filter(n => !noms.has(n));
+      } else {
+        const dejaCoches = new Set(this.checked);
+        this.filtres.forEach(f => { if (!dejaCoches.has(f.name)) this.checked.push(f.name); });
+      }
+      this.$emit("select", this.files.filter(f => this.checked.includes(f.name)));
     },
     fmtSize, fmtDur, fmtDate,
   },
@@ -80,19 +103,27 @@ const FilePicker = {
       <p v-if="loading" class="text-secondary mb-0">Chargement…</p>
       <p v-else-if="!files.length" class="text-secondary mb-0">{{ vide }}</p>
       <p v-else-if="!filtres.length" class="text-secondary mb-0">Aucun résultat pour « {{ query }} ».</p>
-      <div v-else class="vc-files">
-        <button v-for="(v, i) in filtres" :key="v.name" type="button"
-                class="vc-file" :class="{selected: v.name === selected}"
-                @click="pick(v)">
-          <span class="vc-idx vc-mono">{{ i + 1 }}</span>
-          <i class="fa-solid" :class="icone"></i>
-          <span class="name">{{ v.name }}</span>
-          <span class="meta vc-mono">
-            <template v-if="v.duration != null">{{ fmtDur(v.duration) }} · </template>{{ fmtSize(v.size) }}
-          </span>
-          <span class="meta vc-mono vc-created">{{ fmtDate(v.created) }}</span>
-        </button>
-      </div>
+      <template v-else>
+        <label v-if="multi" class="vc-select-all">
+          <input type="checkbox" :checked="toutCoche" @change="basculerTout">
+          Tout sélectionner ({{ checked.length }} / {{ filtres.length }})
+        </label>
+        <div class="vc-files">
+          <button v-for="(v, i) in filtres" :key="v.name" type="button"
+                  class="vc-file" :class="{selected: multi ? estCoche(v) : v.name === selected}"
+                  @click="multi ? basculer(v) : pick(v)">
+            <input v-if="multi" type="checkbox" class="vc-checkbox"
+                   :checked="estCoche(v)" @click.stop="basculer(v)">
+            <span class="vc-idx vc-mono">{{ i + 1 }}</span>
+            <i class="fa-solid" :class="icone"></i>
+            <span class="name">{{ v.name }}</span>
+            <span class="meta vc-mono">
+              <template v-if="v.duration != null">{{ fmtDur(v.duration) }} · </template>{{ fmtSize(v.size) }}
+            </span>
+            <span class="meta vc-mono vc-created">{{ fmtDate(v.created) }}</span>
+          </button>
+        </div>
+      </template>
     </div>`,
 };
 
@@ -250,18 +281,53 @@ const ConvertView = {
     </div>`,
 };
 
+const FORMATS_POCHETTE = ["mp3", "aac", "flac"];
+
 const AudioView = {
   components: { FilePicker, TaskProgress },
-  data: () => ({ file: null, format: "mp3", taskId: null, error: "",
-                 formats: ["mp3", "aac", "ogg", "wav", "flac"] }),
+  data: () => ({ files: [], format: "mp3", jobs: [], error: "",
+                 formats: ["mp3", "aac", "ogg", "wav", "flac"],
+                 coverB64: null, coverMime: null, coverPreview: null, coverError: "" }),
+  computed: {
+    pochetteSupportee() { return FORMATS_POCHETTE.includes(this.format); },
+  },
   methods: {
+    choisirPochette(ev) {
+      this.coverError = "";
+      const f = ev.target.files[0];
+      ev.target.value = "";
+      if (!f) return;
+      if (!["image/jpeg", "image/png", "image/webp"].includes(f.type)) {
+        this.coverError = "Image jpg/png/webp uniquement.";
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        this.coverB64 = reader.result.split(",")[1];
+        this.coverMime = f.type;
+        this.coverPreview = reader.result;
+      };
+      reader.readAsDataURL(f);
+    },
+    retirerPochette() {
+      this.coverB64 = null; this.coverMime = null; this.coverPreview = null;
+    },
     async extract() {
-      this.error = ""; this.taskId = null;
-      try {
-        const { data } = await axios.post(API + "/api/audio/extract",
-                                          { file: this.file.name, format: this.format });
-        this.taskId = data.task_id;
-      } catch (e) { this.error = e.response?.data?.error || "Erreur réseau"; }
+      this.error = "";
+      this.jobs = this.files.map(f => ({ name: f.name, taskId: null }));
+      await Promise.all(this.jobs.map(async job => {
+        try {
+          const { data } = await axios.post(API + "/api/audio/extract", {
+            file: job.name, format: this.format,
+            ...(this.pochetteSupportee && this.coverB64
+                ? { cover_b64: this.coverB64, cover_mime: this.coverMime } : {}),
+          });
+          job.taskId = data.task_id;
+        } catch (e) { job.error = e.response?.data?.error || "Erreur réseau"; }
+      }));
+      if (this.jobs.every(j => j.error && !j.taskId)) {
+        this.error = "Aucune extraction n'a pu démarrer.";
+      }
     },
   },
   template: `
@@ -269,10 +335,10 @@ const AudioView = {
       <header>
         <span class="vc-label">Piste son</span>
         <h1>Extraction audio</h1>
-        <p>Isole la piste audio d'une vidéo vers le dossier audio, au format de votre choix.</p>
+        <p>Isole la piste audio d'une ou plusieurs vidéos vers le dossier audio, au format de votre choix.</p>
       </header>
       <div class="vc-card">
-        <file-picker @select="f => { file = f; taskId = null }"></file-picker>
+        <file-picker multi @select="v => { files = v; jobs = [] }"></file-picker>
         <div class="d-flex gap-2 align-items-end mt-3 flex-wrap">
           <div>
             <label class="vc-label d-block mb-1" for="fmt">Format</label>
@@ -280,12 +346,35 @@ const AudioView = {
               <option v-for="f in formats" :key="f" :value="f">{{ f }}</option>
             </select>
           </div>
-          <button class="btn btn-vc" :disabled="!file" @click="extract">
+          <button class="btn btn-vc" :disabled="!files.length" @click="extract">
             <i class="fa-solid fa-music me-1"></i>Extraire l'audio
+            <span v-if="files.length > 1">({{ files.length }})</span>
           </button>
         </div>
+        <div v-if="pochetteSupportee" class="mt-3">
+          <label class="vc-label d-block mb-1">Pochette (optionnel — sinon image extraite de la vidéo)</label>
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            <img v-if="coverPreview" :src="coverPreview" alt=""
+                 style="width:48px;height:48px;object-fit:cover;border-radius:4px">
+            <label class="btn btn-ghost btn-sm mb-0">
+              <i class="fa-solid fa-image me-1"></i>Choisir une image
+              <input type="file" accept="image/jpeg,image/png,image/webp"
+                     class="d-none" @change="choisirPochette">
+            </label>
+            <button v-if="coverPreview" class="btn btn-ghost btn-sm" @click="retirerPochette">
+              <i class="fa-solid fa-xmark me-1"></i>Retirer
+            </button>
+          </div>
+          <p v-if="coverError" class="vc-error mt-1 mb-0 small">{{ coverError }}</p>
+        </div>
         <p v-if="error" class="vc-error mt-3 mb-0">{{ error }}</p>
-        <task-progress :task-id="taskId"></task-progress>
+        <div v-for="job in jobs" :key="job.name" class="mt-3">
+          <div class="d-flex justify-content-between vc-mono small mb-1">
+            <span>{{ job.name }}</span>
+          </div>
+          <p v-if="job.error" class="vc-error mb-0">{{ job.error }}</p>
+          <task-progress v-else :task-id="job.taskId"></task-progress>
+        </div>
       </div>
     </div>`,
 };
