@@ -230,6 +230,14 @@ h1, h2, h3, .vc-display {
 
 .vc-warning { color: var(--vc-accent); font-size: 0.85rem; }
 .vc-error { color: var(--vc-err); font-size: 0.9rem; }
+.vc-ok { color: var(--vc-ok); font-size: 0.9rem; }
+
+/* Carte "nécessite un redémarrage" (Paramètres) : bordure distincte pour
+   séparer visuellement les réglages à effet immédiat de ceux qui ne
+   s'appliquent qu'après redémarrage du serveur. */
+.vc-settings-restart {
+  border-color: color-mix(in srgb, var(--vc-accent) 45%, var(--vc-line));
+}
 
 /* ============ timeline de découpage ============ */
 

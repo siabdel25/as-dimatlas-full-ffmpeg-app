@@ -1222,6 +1222,106 @@ const MedleyView = {
     </div>`,
 };
 
+const SettingsView = {
+  data: () => ({
+    loaded: false, saving: false, error: "", success: false,
+    restartRequired: false, nbEncodeursActif: 2,
+    form: { pochette_auto: true, pochette_resolution: 500, nb_encodeurs: 2, nb_miniatures: 16 },
+  }),
+  async created() {
+    const { data } = await axios.get(API + "/api/settings");
+    this.appliquer(data);
+    this.loaded = true;
+  },
+  methods: {
+    appliquer(data) {
+      this.form.pochette_auto = data.pochette_auto;
+      this.form.pochette_resolution = data.pochette_resolution;
+      this.form.nb_miniatures = data.nb_miniatures;
+      this.form.nb_encodeurs = data.nb_encodeurs.configured;
+      this.nbEncodeursActif = data.nb_encodeurs.active;
+    },
+    async enregistrer() {
+      this.error = ""; this.success = false;
+      this.saving = true;
+      try {
+        const { data } = await axios.post(API + "/api/settings", this.form);
+        this.appliquer(data);
+        this.restartRequired = data.restart_required;
+        this.success = true;
+      } catch (e) {
+        this.error = e.response?.data?.error || "Erreur réseau";
+      }
+      this.saving = false;
+    },
+  },
+  template: `
+    <div>
+      <header>
+        <span class="vc-label">Configuration</span>
+        <h1>Paramètres</h1>
+        <p>Réglages de l'application, sans besoin d'éditer le code.</p>
+      </header>
+
+      <p v-if="!loaded" class="text-secondary">Chargement…</p>
+
+      <template v-else>
+        <div class="vc-card mb-3">
+          <span class="vc-label d-block mb-3">Application immédiate</span>
+
+          <div class="form-check form-switch mb-3">
+            <input class="form-check-input" type="checkbox" role="switch" id="pochetteAuto"
+                   v-model="form.pochette_auto">
+            <label class="form-check-label" for="pochetteAuto">
+              Extraire automatiquement une pochette depuis la vidéo si aucune image n'est fournie
+            </label>
+          </div>
+
+          <div class="mb-1">
+            <label class="vc-label d-block mb-1" for="pochetteRes">Résolution de la pochette (px)</label>
+            <input id="pochetteRes" type="number" class="form-control" style="max-width:160px"
+                   min="64" max="2000" v-model.number="form.pochette_resolution">
+          </div>
+
+          <div class="mt-3">
+            <label class="vc-label d-block mb-1" for="nbMiniatures">Miniatures dans la timeline de découpage</label>
+            <input id="nbMiniatures" type="number" class="form-control" style="max-width:160px"
+                   min="4" max="40" v-model.number="form.nb_miniatures">
+          </div>
+        </div>
+
+        <div class="vc-card mb-3 vc-settings-restart">
+          <span class="vc-label d-block mb-1">
+            <i class="fa-solid fa-rotate-right me-1"></i>Nécessite un redémarrage
+          </span>
+          <p class="vc-warning mb-3">
+            Actif actuellement : {{ nbEncodeursActif }}. Un changement ne prend effet
+            qu'après <code>docker compose restart videocoder</code> (ou un relancement
+            de <code>python app.py</code> hors Docker).
+          </p>
+          <label class="vc-label d-block mb-1" for="nbEncodeurs">Encodages ffmpeg simultanés</label>
+          <input id="nbEncodeurs" type="number" class="form-control" style="max-width:160px"
+                 min="1" max="8" v-model.number="form.nb_encodeurs">
+        </div>
+
+        <button class="btn btn-vc" :disabled="saving" @click="enregistrer">
+          <i class="fa-solid fa-floppy-disk me-1"></i>
+          {{ saving ? "Enregistrement…" : "Enregistrer" }}
+        </button>
+
+        <p v-if="success && !restartRequired" class="vc-ok mt-3 mb-0">
+          <i class="fa-solid fa-circle-check me-1"></i>Paramètres enregistrés — actifs immédiatement.
+        </p>
+        <p v-if="success && restartRequired" class="vc-warning mt-3 mb-0">
+          <i class="fa-solid fa-triangle-exclamation me-1"></i>
+          Enregistré. Le nombre d'encodeurs sera actif après redémarrage
+          (<code>docker compose restart videocoder</code>).
+        </p>
+        <p v-if="error" class="vc-error mt-3 mb-0">{{ error }}</p>
+      </template>
+    </div>`,
+};
+
 const LibraryView = {
   data: () => ({ videos: [], audios: [], exports: [], query: "" }),
   async created() {
@@ -1326,6 +1426,7 @@ const router = createRouter({
     { path: "/text", component: TextView },
     { path: "/effects", component: EffectsView },
     { path: "/library", component: LibraryView },
+    { path: "/settings", component: SettingsView },
   ],
 });
 

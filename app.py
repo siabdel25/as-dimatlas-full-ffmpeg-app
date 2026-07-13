@@ -11,11 +11,14 @@ Endpoints :
     POST /api/cut                      Découpage t1→t2 en secondes (tâche de fond)
     GET  /api/tasks/<id>               État/progression d'une tâche
     GET  /api/media/<type>/<nom>       Téléchargement du fichier produit
+    GET  /api/settings                 Paramètres actuels (pochette, encodeurs, miniatures)
+    POST /api/settings                 Mise à jour des paramètres (validation stricte)
 
 Lancement : .venv/bin/python app.py  →  http://localhost:5000
 """
 
 import base64
+import json
 import os
 import queue
 import re
@@ -31,6 +34,47 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DOWNLOADS_DIR = os.path.join(BASE_DIR, "downloads")
 AUDIO_DIR = os.path.join(BASE_DIR, "audio")
 VIDEO_EXTS = (".mp4", ".mkv", ".webm", ".mov", ".avi", ".flv", ".m4v")
+
+# Paramètres persistés (dashboard Paramètres). Volume Docker dédié
+# (docker-compose.yml : ./config:/app/config) — un emplacement hors volume
+# monté serait effacé à chaque `docker compose up -d --build`.
+CONFIG_DIR = os.path.join(BASE_DIR, "config")
+CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
+CONFIG_LOCK = threading.Lock()
+
+CONFIG_DEFAULTS = {
+    "pochette_auto": True,       # extraction depuis la vidéo si pas d'upload utilisateur
+    "pochette_resolution": 500,  # largeur en px (scale=X:-2)
+    "nb_encodeurs": None,        # None = pas de préférence -> fallback env ENCODERS / défaut
+    "nb_miniatures": 16,
+}
+
+BORNES_SETTINGS = {
+    "pochette_resolution": (64, 2000),
+    "nb_encodeurs": (1, 8),
+    "nb_miniatures": (4, 40),
+}
+
+
+def _charger_config():
+    """Fusionne config.json sur les défauts. Un fichier absent, corrompu ou
+    partiellement écrit ne doit jamais empêcher l'app de démarrer — on
+    retombe silencieusement sur les défauts plutôt que de laisser
+    l'exception remonter jusqu'à l'import du module."""
+    config = dict(CONFIG_DEFAULTS)
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            disque = json.load(f)
+        if isinstance(disque, dict):
+            config.update({k: v for k, v in disque.items() if k in CONFIG_DEFAULTS})
+    except FileNotFoundError:
+        pass
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+        pass
+    return config
+
+
+CONFIG = _charger_config()
 
 AUDIO_FORMATS = {
     "mp3":  {"ext": "mp3",  "args": ["-c:a", "libmp3lame", "-b:a", "192k"]},
@@ -96,7 +140,27 @@ def update_task(task_id, **champs):
 # elles ne pèsent pas sur le CPU et l'enregistrement radio, potentiellement
 # long, monopoliserait un encodeur.
 ENCODE_QUEUE = queue.Queue()
-NB_ENCODEURS = max(1, int(os.environ.get("ENCODERS", "2")))
+
+
+def _nb_encodeurs_configure():
+    """Précédence : config.json > variable d'env ENCODERS > défaut 2.
+    Un config.json syntaxiquement valide mais avec un type incorrect pour
+    cette clé (édition manuelle ratée) ne doit pas empêcher l'app de
+    démarrer — mêmes garanties que _charger_config()."""
+    if CONFIG.get("nb_encodeurs") is not None:
+        lo, hi = BORNES_SETTINGS["nb_encodeurs"]
+        try:
+            return max(lo, min(hi, int(CONFIG["nb_encodeurs"])))
+        except (TypeError, ValueError):
+            pass
+    return max(1, int(os.environ.get("ENCODERS", "2")))
+
+
+# Lu UNE SEULE FOIS au chargement du module pour lancer les threads workers
+# ci-dessous : un changement via /api/settings met à jour CONFIG en mémoire
+# (valeur "configured") mais ne peut pas relancer des threads déjà démarrés
+# (valeur "active") — d'où la distinction exposée par GET /api/settings.
+NB_ENCODEURS = _nb_encodeurs_configure()
 
 
 def soumettre_encodage(task_id, fn):
@@ -205,6 +269,81 @@ def terminer(task_id, sortie, avertissements=None):
 @app.get("/")
 def index():
     return send_from_directory("static", "index.html")
+
+
+def valider_settings(payload):
+    """Valide un payload de settings entrant contre BORNES_SETTINGS.
+    Retourne (valeurs_validees, erreurs) ; en cas d'erreur, rien n'est
+    écrit sur disque par l'appelant (POST /api/settings)."""
+    if not isinstance(payload, dict):
+        return {}, ["Le corps de la requête doit être un objet JSON"]
+
+    valeurs = {}
+    erreurs = []
+
+    if "pochette_auto" in payload:
+        if isinstance(payload["pochette_auto"], bool):
+            valeurs["pochette_auto"] = payload["pochette_auto"]
+        else:
+            erreurs.append("pochette_auto doit être un booléen")
+
+    for cle in ("pochette_resolution", "nb_encodeurs", "nb_miniatures"):
+        if cle in payload:
+            v = payload[cle]
+            lo, hi = BORNES_SETTINGS[cle]
+            if isinstance(v, int) and not isinstance(v, bool) and lo <= v <= hi:
+                valeurs[cle] = v
+            else:
+                erreurs.append(f"{cle} doit être un entier entre {lo} et {hi}")
+
+    cles_inconnues = set(payload) - set(CONFIG_DEFAULTS)
+    if cles_inconnues:
+        erreurs.append(f"Clé(s) inconnue(s) : {', '.join(sorted(cles_inconnues))}")
+
+    return valeurs, erreurs
+
+
+def _settings_effectifs():
+    return {
+        "pochette_auto": CONFIG["pochette_auto"],
+        "pochette_resolution": CONFIG["pochette_resolution"],
+        "nb_miniatures": CONFIG["nb_miniatures"],
+        "nb_encodeurs": {
+            "active": NB_ENCODEURS,
+            "configured": CONFIG.get("nb_encodeurs") or NB_ENCODEURS,
+        },
+    }
+
+
+@app.get("/api/settings")
+def obtenir_settings():
+    return jsonify(_settings_effectifs())
+
+
+@app.post("/api/settings")
+def sauvegarder_settings():
+    payload = request.json or {}
+    valeurs, erreurs = valider_settings(payload)
+    if erreurs:
+        return jsonify({"error": " ; ".join(erreurs)}), 400
+
+    with CONFIG_LOCK:
+        CONFIG.update(valeurs)
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(dir=CONFIG_DIR, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(CONFIG, f, indent=2, ensure_ascii=False)
+            os.replace(tmp_path, CONFIG_PATH)
+        except OSError:
+            os.unlink(tmp_path)
+            raise
+
+    reponse = _settings_effectifs()
+    reponse["restart_required"] = (
+        "nb_encodeurs" in valeurs and valeurs["nb_encodeurs"] != NB_ENCODEURS
+    )
+    return jsonify(reponse)
 
 
 def parcourir(racine, ignorer_dirs=()):
@@ -358,10 +497,11 @@ def extraire_pochette(chemin, duree):
     audio ; None si l'extraction échoue (vidéo sans piste vidéo, etc.)."""
     tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
     tmp.close()
+    resolution = CONFIG.get("pochette_resolution", 500)
     try:
         subprocess.run(
             ["ffmpeg", "-y", "-v", "error", "-ss", f"{duree * 0.1:.2f}",
-             "-i", chemin, "-frames:v", "1", "-vf", "scale=500:-2", tmp.name],
+             "-i", chemin, "-frames:v", "1", "-vf", f"scale={resolution}:-2", tmp.name],
             capture_output=True)
     except OSError:
         os.unlink(tmp.name)
@@ -394,10 +534,11 @@ def decoder_pochette_personnalisee(cover_b64, cover_mime):
     src.close()
     tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
     tmp.close()
+    resolution = CONFIG.get("pochette_resolution", 500)
     try:
         subprocess.run(
             ["ffmpeg", "-y", "-v", "error", "-i", src.name,
-             "-frames:v", "1", "-vf", "scale=500:-2", tmp.name],
+             "-frames:v", "1", "-vf", f"scale={resolution}:-2", tmp.name],
             capture_output=True)
     except OSError:
         os.unlink(tmp.name)
@@ -434,7 +575,7 @@ def extraire_audio():
         if fmt_id in FORMATS_POCHETTE:
             if cover_b64:
                 pochette = decoder_pochette_personnalisee(cover_b64, cover_mime)
-            elif duree:
+            elif duree and CONFIG.get("pochette_auto", True):
                 pochette = extraire_pochette(source, duree)
         try:
             if pochette:
@@ -512,7 +653,6 @@ def arreter_tache(task_id):
 # ------------------------------------------------------- miniatures timeline
 
 MINIATURES_DIR = os.path.join(DOWNLOADS_DIR, ".miniatures")
-NB_MINIATURES = 16
 
 
 @app.post("/api/thumbnails")
@@ -525,15 +665,19 @@ def miniatures_timeline():
     duree = duree_video(source)
     if not duree:
         return jsonify({"error": "Durée illisible"}), 400
-    cle = f"{os.path.basename(source)}:{os.path.getmtime(source)}"
+    nb_miniatures = CONFIG.get("nb_miniatures", 16)
+    # nb_miniatures dans la clé de cache : un changement du réglage doit
+    # regénérer la bande plutôt que de resservir un cache figé sur l'ancien
+    # nombre d'images.
+    cle = f"{os.path.basename(source)}:{os.path.getmtime(source)}:{nb_miniatures}"
     h = hashlib.md5(cle.encode()).hexdigest()[:16]
     dossier = os.path.join(MINIATURES_DIR, h)
     if not os.path.isdir(dossier) or not os.listdir(dossier):
         os.makedirs(dossier, exist_ok=True)
         subprocess.run(
             ["ffmpeg", "-y", "-v", "error", "-i", source,
-             "-vf", f"fps={NB_MINIATURES}/{duree},scale=160:-2",
-             "-frames:v", str(NB_MINIATURES),
+             "-vf", f"fps={nb_miniatures}/{duree},scale=160:-2",
+             "-frames:v", str(nb_miniatures),
              os.path.join(dossier, "t_%02d.jpg")],
             capture_output=True)
     nb = len([f for f in os.listdir(dossier) if f.endswith(".jpg")])

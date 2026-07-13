@@ -19,6 +19,7 @@ progression des traitements en temps réel.
 | 🔤 **Titre** | Incruste un texte (position, couleur, contour noir) sur la vidéo |
 | ✨ **Effets** | Transition d'intro/outro (fondu noir ou blanc, cercle, zoom, pixellisation…) avec fondu du son assorti |
 | 📂 **Bibliothèque** | Tous les fichiers produits, consultables en un clic, avec vignette (image de la vidéo, pochette de l'audio) |
+| ⚙️ **Paramètres** | Pochette audio (auto-extraction ou non, résolution), nombre de miniatures dans la timeline, nombre d'encodeurs ffmpeg simultanés — sans éditer le code |
 
 Les vidéos vont dans `downloads/`, les audios dans `audio/`. Aucun fichier
 n'est jamais écrasé (suffixes `_1`, `_2`, …). Partout où l'on choisit un
@@ -28,10 +29,12 @@ la liste par nom, chaque ligne est numérotée et affiche sa date de création,
 la liste est triée du plus récent au plus ancien.
 
 Les encodages passent par une **file d'attente** (2 ffmpeg simultanés par
-défaut, variable d'environnement `ENCODERS` pour ajuster) : les tâches
-supplémentaires affichent « En file d'attente » puis démarrent dès qu'un
-encodeur se libère. Les téléchargements YouTube et les enregistrements radio,
-limités par le réseau, ne comptent pas dans cette limite.
+défaut, réglable dans l'onglet **Paramètres** ou via la variable
+d'environnement `ENCODERS` — le réglage UI prend le dessus s'il est défini,
+nécessite un redémarrage pour s'appliquer) : les tâches supplémentaires
+affichent « En file d'attente » puis démarrent dès qu'un encodeur se libère.
+Les téléchargements YouTube et les enregistrements radio, limités par le
+réseau, ne comptent pas dans cette limite.
 
 ## Démarrage rapide
 
@@ -41,8 +44,10 @@ limités par le réseau, ne comptent pas dans cette limite.
 docker compose up -d
 ```
 
-Puis ouvrez **http://localhost:5000**. Les dossiers `downloads/` et `audio/`
-sont montés en volumes : les fichiers restent sur votre machine.
+Puis ouvrez **http://localhost:5000**. Les dossiers `downloads/`, `audio/`
+et `config/` (réglages de l'onglet Paramètres) sont montés en volumes : les
+fichiers et réglages restent sur votre machine, y compris après un
+`docker compose up -d --build`.
 
 ```bash
 docker compose down              # arrêter

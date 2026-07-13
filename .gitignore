@@ -8,6 +8,9 @@ downloads/
 audio/
 audios/
 
+# Paramètres persistés localement (dashboard Paramètres)
+config/
+
 # Médias où qu'ils soient (trop gros pour git)
 *.mp4
 *.mkv

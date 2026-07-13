@@ -51,6 +51,9 @@
         <router-link class="vc-nav-link" to="/library">
           <i class="fa-solid fa-folder-open"></i><span>Bibliothèque</span>
         </router-link>
+        <router-link class="vc-nav-link" to="/settings">
+          <i class="fa-solid fa-gear"></i><span>Paramètres</span>
+        </router-link>
         <button class="btn btn-ghost btn-sm vc-theme-toggle"
                 @click="theme = theme === 'dark' ? 'light' : 'dark'"
                 :title="theme === 'dark' ? 'Thème clair' : 'Thème sombre'">

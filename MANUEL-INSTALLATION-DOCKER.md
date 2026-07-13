@@ -170,7 +170,15 @@ L'application est alors accessible à l'adresse :
 
 Les fichiers produits ou importés restent sur la machine hôte, dans les
 dossiers `downloads/` (vidéos) et `audio/` (pistes audio) du projet — ils
-sont montés en volume et survivent à l'arrêt du conteneur.
+sont montés en volume et survivent à l'arrêt du conteneur. Le dossier
+`config/` (réglages de l'onglet **Paramètres** — pochette, encodeurs,
+miniatures) est monté de la même façon et survit lui aussi aux mises à jour.
+
+> **Si vous mettez à jour depuis une version antérieure au dashboard
+> Paramètres** et que vous avez un `docker-compose.yml` modifié localement :
+> ajoutez la ligne `- ./config:/app/config` dans la section `volumes:` avant
+> de relancer, sinon vos réglages seraient effacés au prochain rebuild
+> (`docker compose up -d --build`).
 
 Pour arrêter l'application :
 
@@ -182,10 +190,10 @@ docker compose down
 
 ## 5. Mettre à jour l'application après une modification du code
 
-Le `docker-compose.yml` du projet **ne monte que `downloads/` et `audio/`
-en volume** : `app.py` et le dossier `static/` (frontend) sont copiés dans
-l'image au moment du build. Un simple redémarrage ne suffit donc pas après
-une modification du code — il faut reconstruire l'image :
+Le `docker-compose.yml` du projet **ne monte que `downloads/`, `audio/` et
+`config/` en volume** : `app.py` et le dossier `static/` (frontend) sont
+copiés dans l'image au moment du build. Un simple redémarrage ne suffit donc
+pas après une modification du code — il faut reconstruire l'image :
 
 ```bash
 docker compose up -d --build
@@ -205,3 +213,29 @@ image, sans vos derniers changements.
 | Port 5000 déjà utilisé | Une autre appli écoute sur ce port | Libérer le port, ou changer `"5000:5000"` en `"8080:5000"` dans `docker-compose.yml` |
 | Docker Desktop ne démarre pas (Windows) | WSL2 non installé/à jour | `wsl --update` puis redémarrer |
 | Les changements de code n'apparaissent pas | Image non reconstruite | `docker compose up -d --build` (voir section 5) |
+| Le nombre d'encodeurs changé dans **Paramètres** ne semble pas actif | Nécessite un redémarrage (pas juste une sauvegarde) | `docker compose restart videocoder` |
+
+---
+
+## 7. Onglet Paramètres — vérification après installation ou mise à jour
+
+Checklist manuelle (le projet n'a pas de suite de tests automatisés — voir
+`app.py`, fonction `valider_settings()`, pour la logique de validation) :
+
+- [ ] Premier démarrage sans `config/config.json` existant : l'onglet
+      **Paramètres** affiche les valeurs par défaut sans erreur.
+- [ ] Modifier la pochette/miniatures, cliquer **Enregistrer** : message de
+      confirmation vert immédiat, valeurs toujours présentes après un
+      rechargement de la page.
+- [ ] Modifier le nombre d'encodeurs, cliquer **Enregistrer** : message
+      orange "sera appliqué après redémarrage" ; après
+      `docker compose restart videocoder`, la valeur "Actif actuellement"
+      correspond au nouveau réglage.
+- [ ] Entrer une valeur hors bornes (ex. encodeurs = 0 ou 20) : message
+      d'erreur rouge, rien n'est modifié dans `config/config.json`.
+- [ ] Éditer `config/config.json` à la main avec un JSON invalide, puis
+      relancer l'app (`docker compose restart videocoder`) : l'application
+      démarre quand même (valeurs par défaut), pas de panne totale.
+- [ ] Après `docker compose up -d --build` : les réglages précédemment
+      enregistrés sont toujours là (le volume `./config` a bien survécu au
+      rebuild).

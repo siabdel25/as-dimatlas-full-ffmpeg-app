@@ -8,4 +8,7 @@ services:
       # Les fichiers produits restent sur la machine hôte
       - ./downloads:/app/downloads
       - ./audio:/app/audio
+      # Paramètres (dashboard Paramètres) : hors volume, config.json serait
+      # effacé à chaque `docker compose up -d --build`.
+      - ./config:/app/config
     restart: unless-stopped
