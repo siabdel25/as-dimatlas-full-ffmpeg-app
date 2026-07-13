@@ -47,7 +47,9 @@ docker compose up -d
 Puis ouvrez **http://localhost:5000**. Les dossiers `downloads/`, `audio/`
 et `config/` (réglages de l'onglet Paramètres) sont montés en volumes : les
 fichiers et réglages restent sur votre machine, y compris après un
-`docker compose up -d --build`.
+`docker compose up -d --build`. Leur emplacement est personnalisable via un
+fichier `.env` (voir `.env.example` et `MANUEL-INSTALLATION-DOCKER.md`
+section 4.1) — utile pour pointer vers un disque externe ou un NAS.
 
 ```bash
 docker compose down              # arrêter

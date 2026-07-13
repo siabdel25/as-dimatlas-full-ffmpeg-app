@@ -186,6 +186,39 @@ Pour arrêter l'application :
 docker compose down
 ```
 
+### 4.1 Personnaliser l'emplacement des dossiers
+
+Par défaut, `downloads/`, `audio/` et `config/` sont créés dans le dossier
+du projet. Pour les faire pointer ailleurs sur votre machine (ex. un disque
+externe, un NAS) :
+
+```bash
+cp .env.example .env
+```
+
+Éditez `.env` et décommentez/renseignez les chemins voulus :
+
+```bash
+DOWNLOADS_DIR=/mnt/nas/videos
+AUDIO_DIR=/mnt/nas/audio
+CONFIG_DIR=/mnt/nas/videocoder-config
+```
+
+Puis appliquez :
+
+```bash
+docker compose up -d
+```
+
+**Pas besoin de `--build`** ici : un changement de chemin de volume n'est
+pas gravé dans l'image (contrairement au code, voir section 5) —
+`docker compose up -d` recrée le conteneur avec les nouveaux montages.
+Un simple `docker compose restart` ne suffirait PAS : il relance le
+process dans le conteneur existant sans relire les montages.
+
+`.env` est ignoré par git (spécifique à votre machine) ; `.env.example`
+documente les variables disponibles.
+
 ---
 
 ## 5. Mettre à jour l'application après une modification du code

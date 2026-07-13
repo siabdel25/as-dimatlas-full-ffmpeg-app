@@ -17,14 +17,16 @@ redécouvrir. Mis à jour le 2026-07-13 (v2, extension qualité vidéo). Voir
   donc à faire séparément. Piste : taille actuelle du cache + bouton purge
   dans l'onglet Paramètres.
 
-- **Répertoires `downloads/`/`audio/` configurables — v2, mode sans-Docker
-  uniquement.** Exclus explicitement du dashboard Paramètres v1 (décision
-  CEO review 2026-07-13) : en déploiement Docker (mode recommandé), ces
-  chemins sont fixés par `docker-compose.yml` et un champ formulaire ne
-  peut pas relocaliser un dossier hôte arbitraire à l'intérieur du
-  conteneur — les exposer comme un champ modifiable serait trompeur. Une
-  v2 pourrait les rendre modifiables seulement quand l'app tourne hors
-  Docker (`python app.py` direct), avec détection de mode de déploiement.
+- **Répertoires `downloads`/`audio`/`config` — traité, pas via l'UI.**
+  Exclus du dashboard Paramètres (décision CEO review 2026-07-13, toujours
+  valable : un champ web ne peut pas relocaliser un dossier hôte arbitraire
+  à l'intérieur du conteneur). Résolu autrement (2026-07-13) : chemins
+  personnalisables via `.env` (voir `.env.example`,
+  `MANUEL-INSTALLATION-DOCKER.md` section 4.1) — édition de fichier texte +
+  `docker compose up -d` (pas de rebuild), même mécanisme que le reste,
+  juste plus pratique qu'éditer `docker-compose.yml` directement. Un champ
+  UI reste hors scope (même limite technique qu'avant), mais le besoin réel
+  (déplacer le stockage vers un NAS/disque externe) est couvert.
 
 - **Presets CRF/preset x264 non exposés en granularité fine.** Le réglage
   Qualité d'encodage (2026-07-13) expose 3 paliers nommés (léger/équilibré/
