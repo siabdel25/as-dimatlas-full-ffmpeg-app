@@ -114,7 +114,13 @@ def choisir_fichier():
 # -------------------------------------------------------------------- options
 
 def telecharger_youtube():
-    from yt_dlp import YoutubeDL
+    try:
+        from yt_dlp import YoutubeDL
+    except ImportError:
+        print("❌ Le module 'yt-dlp' n'est pas installé dans cet interpréteur Python.\n"
+              "   Installez-le (pip install yt-dlp) ou lancez le script avec le venv "
+              "du projet, ex. : .venv/bin/python scrap_movie.py")
+        return
 
     url = input("URL de la vidéo YouTube : ").strip()
     if not url:
@@ -127,11 +133,12 @@ def telecharger_youtube():
     }
     with YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=False)
-        duree = info.get("duration") or 0
+        duree = int(info.get("duration") or 0)
+        vues = info.get("view_count")
         print(f"\nTitre    : {info.get('title')}")
         print(f"Chaîne   : {info.get('uploader')}")
         print(f"Durée    : {duree // 60}:{duree % 60:02d}")
-        print(f"Vues     : {info.get('view_count'):,}".replace(",", " "))
+        print(f"Vues     : {'inconnu' if vues is None else f'{vues:,}'.replace(',', ' ')}")
         if input("\nTélécharger ? [O/n] : ").strip().lower() in ("", "o", "oui"):
             ydl.download([url])
             print(f"✅ Vidéo téléchargée dans {DOWNLOADS_DIR}/")
