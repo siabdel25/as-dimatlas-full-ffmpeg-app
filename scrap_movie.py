@@ -116,6 +116,7 @@ def choisir_fichier():
 def telecharger_youtube():
     try:
         from yt_dlp import YoutubeDL
+        from yt_dlp.utils import DownloadError
     except ImportError:
         print("❌ Le module 'yt-dlp' n'est pas installé dans cet interpréteur Python.\n"
               "   Installez-le (pip install yt-dlp) ou lancez le script avec le venv "
@@ -131,8 +132,33 @@ def telecharger_youtube():
         "outtmpl": f"{DOWNLOADS_DIR}/%(title)s.%(ext)s",
         "noplaylist": True,
     }
+    opts["remote_components"] = ["ejs:github"]  # solveur JS de YouTube
+    if shutil.which("node") and not shutil.which("deno"):
+        opts["js_runtimes"] = {"node": {}}  # deno absent : yt-dlp utilise node
+    # YouTube exige parfois une session connectée ("Sign in to confirm you're not a bot")
+    cookies_fichier = os.environ.get("YT_COOKIES_FILE") or (
+        "cookies.txt" if os.path.isfile("cookies.txt") else "")
+    cookies_navigateur = os.environ.get("YT_COOKIES_BROWSER", "")  # ex. firefox, chrome
+    if cookies_fichier:
+        opts["cookiefile"] = cookies_fichier
+    elif cookies_navigateur:
+        opts["cookiesfrombrowser"] = (cookies_navigateur,)
     with YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(url, download=False)
+        try:
+            info = ydl.extract_info(url, download=False)
+        except DownloadError as e:
+            if "Sign in to confirm" in str(e):
+                print("\n❌ YouTube demande une connexion (détection anti-bot).\n"
+                      "   Fournissez vos cookies, puis relancez :\n"
+                      "   - YT_COOKIES_BROWSER=firefox python scrap_movie.py   (ou chrome, brave…)\n"
+                      "   - ou exportez cookies.txt (extension « Get cookies.txt LOCALLY ») dans le "
+                      "dossier courant, ou YT_COOKIES_FILE=/chemin/cookies.txt")
+                return
+            print(f"\n❌ Impossible de récupérer la vidéo : {e}\n"
+                  "   Si elle marche dans le navigateur, mettez à jour yt-dlp.\n   Sinon elle est probablement privée, supprimée, restreinte "
+                  "(âge/pays) ou indisponible. Essayez une autre URL, ou mettez à "
+                  "jour : pip install -U yt-dlp")
+            return
         duree = int(info.get("duration") or 0)
         vues = info.get("view_count")
         print(f"\nTitre    : {info.get('title')}")
