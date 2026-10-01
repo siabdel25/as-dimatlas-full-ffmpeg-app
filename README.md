@@ -8,7 +8,7 @@ progression des traitements en temps réel.
 
 | Outil | Description |
 |---|---|
-| 🎥 **YouTube** | Téléchargement d'une vidéo en MP4 (métadonnées, miniature, barre de progression) |
+| 🎥 **URL** | Téléchargement d'une vidéo en MP4, ou option **Audio MP3** avec pochette et tags (titre, artiste) ; YouTube et autres sites pris en charge par yt-dlp (métadonnées, miniature, barre de progression) |
 | 💬 **Réseaux sociaux** | Conversion WhatsApp/Instagram : H.264 + AAC, `yuv420p`, `faststart`, débit calculé selon la durée pour viser < 16 Mo |
 | 🎵 **Extraction audio** | Piste audio d'une vidéo en mp3, aac, ogg, wav ou flac |
 | ✂️ **Découpage** | Extrait de t1 à t2 (minutes décimales `1.5` ou `mm:ss`), coupe précise à l'image |
@@ -83,7 +83,7 @@ Toutes les opérations longues renvoient un `task_id` à interroger sur
 |---|---|---|
 | `/api/files` | GET | — |
 | `/api/youtube/info` | POST | `{url}` |
-| `/api/youtube/download` | POST | `{url}` |
+| `/api/youtube/download` | POST | `{url, audio?}` (audio=true : MP3 + pochette dans audio/) |
 | `/api/convert` | POST | `{file}` |
 | `/api/audio/extract` | POST | `{file, format}` |
 | `/api/cut` | POST | `{file, t1, t2}` (secondes) |

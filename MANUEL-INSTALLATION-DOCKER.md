@@ -272,3 +272,11 @@ Checklist manuelle (le projet n'a pas de suite de tests automatisés — voir
 - [ ] Après `docker compose up -d --build` : les réglages précédemment
       enregistrés sont toujours là (le volume `./config` a bien survécu au
       rebuild).
+
+## Cookies YouTube (erreur « Sign in to confirm you're not a bot »)
+
+Si YouTube bloque les téléchargements depuis le serveur, exportez vos cookies
+(extension « Get cookies.txt LOCALLY ») et déposez le fichier sous le nom
+`cookies/cookies.txt` (ou dans le dossier défini par `COOKIES_DIR` dans `.env`),
+puis `docker compose up -d --build`. Le fichier est monté en lecture seule et
+ne doit jamais être commité (il est dans `.gitignore`).

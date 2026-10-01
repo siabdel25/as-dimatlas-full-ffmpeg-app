@@ -13,4 +13,7 @@ services:
       # Paramètres (dashboard Paramètres) : hors volume, config.json serait
       # effacé à chaque `docker compose up -d --build`.
       - ${CONFIG_DIR:-./config}:/app/config
+      # Cookies YouTube (optionnel) : déposer cookies.txt dans ce dossier si
+      # YouTube répond « Sign in to confirm you're not a bot ».
+      - ${COOKIES_DIR:-./cookies}:/app/cookies:ro
     restart: unless-stopped

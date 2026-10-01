@@ -193,7 +193,7 @@ const TaskProgress = {
 
 const DownloadView = {
   components: { TaskProgress },
-  data: () => ({ url: "", info: null, infoLoading: false, error: "", taskId: null }),
+  data: () => ({ url: "", info: null, infoLoading: false, error: "", taskId: null, audio: false }),
   methods: {
     fmtDur,
     async fetchInfo() {
@@ -209,7 +209,8 @@ const DownloadView = {
       this.infoLoading = false;
     },
     async download() {
-      const { data } = await axios.post(API + "/api/youtube/download", { url: this.url });
+      const { data } = await axios.post(API + "/api/youtube/download",
+                                        { url: this.url, audio: this.audio });
       this.taskId = data.task_id;
     },
   },
@@ -217,8 +218,8 @@ const DownloadView = {
     <div>
       <header>
         <span class="vc-label">Étape 1 — Récupérer</span>
-        <h1>Téléchargement YouTube</h1>
-        <p>Collez un lien : la vidéo est vérifiée puis enregistrée en MP4 dans le dossier downloads.</p>
+        <h1>Téléchargement par URL</h1>
+        <p>Collez un lien (YouTube ou autre site) : la vidéo est vérifiée puis enregistrée en MP4 (dossier downloads) ou en MP3 avec pochette (dossier audio).</p>
       </header>
       <div class="vc-card">
         <form @submit.prevent="fetchInfo" class="d-flex gap-2 flex-wrap">
@@ -240,8 +241,12 @@ const DownloadView = {
               <dt>Durée</dt><dd class="vc-mono">{{ fmtDur(info.duration) }}</dd>
               <dt>Vues</dt><dd class="vc-mono">{{ info.views?.toLocaleString("fr-FR") }}</dd>
             </dl>
+            <div class="form-check mb-3">
+              <input class="form-check-input" type="checkbox" id="dl-audio" v-model="audio" :disabled="!!taskId">
+              <label class="form-check-label" for="dl-audio">Audio MP3 seulement (avec pochette et tags)</label>
+            </div>
             <button class="btn btn-vc" @click="download" :disabled="!!taskId">
-              <i class="fa-solid fa-download me-1"></i>Télécharger en MP4
+              <i class="fa-solid fa-download me-1"></i>{{ audio ? "Télécharger en MP3" : "Télécharger en MP4" }}
             </button>
           </div>
         </div>

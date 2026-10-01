@@ -22,6 +22,7 @@ import json
 import os
 import queue
 import re
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -433,6 +434,21 @@ def etat_tache(task_id):
     return jsonify(tache)
 
 
+def options_yt_dlp(opts):
+    """Complète les options yt-dlp : solveur JS et cookies (YouTube exige
+    parfois une session connectée : YT_COOKIES_FILE ou YT_COOKIES_BROWSER)."""
+    opts["remote_components"] = ["ejs:github"]
+    if shutil.which("node") and not shutil.which("deno"):
+        opts["js_runtimes"] = {"node": {}}
+    fichier = os.environ.get("YT_COOKIES_FILE", "")
+    navigateur = os.environ.get("YT_COOKIES_BROWSER", "")
+    if fichier and os.path.isfile(fichier):
+        opts["cookiefile"] = fichier
+    elif navigateur:
+        opts["cookiesfrombrowser"] = (navigateur,)
+    return opts
+
+
 @app.post("/api/youtube/info")
 def youtube_info():
     from yt_dlp import YoutubeDL
@@ -440,7 +456,8 @@ def youtube_info():
     if not url:
         return jsonify({"error": "URL manquante"}), 400
     try:
-        with YoutubeDL({"quiet": True, "no_warnings": True, "noplaylist": True}) as ydl:
+        with YoutubeDL(options_yt_dlp({"quiet": True, "no_warnings": True,
+                                       "noplaylist": True})) as ydl:
             info = ydl.extract_info(url, download=False)
     except Exception as e:
         return jsonify({"error": f"Vidéo introuvable : {e}"}), 400
@@ -455,7 +472,9 @@ def youtube_info():
 
 @app.post("/api/youtube/download")
 def youtube_download():
-    url = (request.json or {}).get("url", "").strip()
+    data = request.json or {}
+    url = data.get("url", "").strip()
+    audio = bool(data.get("audio"))
     if not url:
         return jsonify({"error": "URL manquante"}), 400
     task_id = new_task("download")
@@ -472,17 +491,34 @@ def youtube_download():
 
     def travail():
         from yt_dlp import YoutubeDL
-        os.makedirs(DOWNLOADS_DIR, exist_ok=True)
+        dossier = AUDIO_DIR if audio else DOWNLOADS_DIR
+        os.makedirs(dossier, exist_ok=True)
         opts = {
             "format": "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/best",
-            "outtmpl": f"{DOWNLOADS_DIR}/%(title)s.%(ext)s",
+            "outtmpl": f"{dossier}/%(title)s.%(ext)s",
             "noplaylist": True, "quiet": True, "no_warnings": True,
             "progress_hooks": [hook],
         }
+        if audio:
+            # MP3 + tags (titre, artiste) + miniature en pochette (APIC)
+            opts.update({
+                "format": "bestaudio/best",
+                "writethumbnail": True,
+                "postprocessors": [
+                    {"key": "FFmpegExtractAudio", "preferredcodec": "mp3",
+                     "preferredquality": "192"},
+                    {"key": "FFmpegThumbnailsConvertor", "format": "jpg",
+                     "when": "before_dl"},
+                    {"key": "FFmpegMetadata", "add_metadata": True},
+                    {"key": "EmbedThumbnail"},
+                ],
+            })
         try:
-            with YoutubeDL(opts) as ydl:
+            with YoutubeDL(options_yt_dlp(opts)) as ydl:
                 info = ydl.extract_info(url, download=True)
                 sortie = ydl.prepare_filename(info)
+                if audio:
+                    sortie = os.path.splitext(sortie)[0] + ".mp3"
             terminer(task_id, sortie)
         except Exception as e:
             update_task(task_id, status="error", message=str(e))

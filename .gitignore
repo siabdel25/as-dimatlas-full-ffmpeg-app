@@ -32,3 +32,5 @@ config/
 
 # Réglages locaux Claude Code
 .claude/settings.local.json
+cookies/
+cookies.txt
