@@ -169,9 +169,10 @@ d'encodage → `lancer_ffmpeg()` publie la progression → `GET
   CDN (Vue, Bootstrap…) : cache d'abord. Hors-ligne, seule l'interface
   s'affiche, aucun traitement n'est possible. Pour forcer le rafraîchissement
   du cache, changer `VERSION` dans `sw.js`.
-- **Non testé** : Flask n'était pas installé en local (tout tourne sous
-  Docker), donc ni l'installation sur téléphone, ni le `Content-Type` de
-  `manifest.webmanifest` n'ont été vérifiés. Si l'installation n'est pas
+- **Vérifié / non vérifié** : en conteneur, `/`, `/sw.js`, les icônes et
+  `/manifest.webmanifest` répondent 200 (`Content-Type:
+  application/manifest+json`). Pas encore testée : l'installation réelle sur
+  téléphone (Android/iPhone), qui exige https. Si l'installation n'est pas
   proposée, contrôler d'abord l'onglet Application des DevTools (Manifest,
   Service Workers).
 
