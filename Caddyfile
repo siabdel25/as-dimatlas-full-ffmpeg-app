@@ -1,0 +1,12 @@
+# https automatique (certificat Let's Encrypt géré par Caddy).
+# DOMAIN vient du fichier .env, ex. DOMAIN=video.monsite.com
+{$DOMAIN} {
+	# Mot de passe (recommandé si l'app est sur Internet) :
+	# 1) docker run --rm caddy caddy hash-password --plaintext 'MON_MOT_DE_PASSE'
+	# 2) décommentez et collez le résultat à la place de HASH
+	# basicauth {
+	# 	admin HASH
+	# }
+
+	reverse_proxy videocoder:5000
+}

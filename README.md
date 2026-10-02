@@ -19,6 +19,7 @@ progression des traitements en temps réel.
 | 🔤 **Titre** | Incruste un texte (position, couleur, contour noir) sur la vidéo |
 | ✨ **Effets** | Transition d'intro/outro (fondu noir ou blanc, cercle, zoom, pixellisation…) avec fondu du son assorti |
 | 📂 **Bibliothèque** | Tous les fichiers produits, consultables en un clic, avec vignette (image de la vidéo, pochette de l'audio) |
+| 📱 **PWA** | Installable sur Android (Chrome) et iPhone (Safari) : icône sur l'écran d'accueil, plein écran, démarrage rapide. Nécessite https (voir ci-dessous) |
 | ⚙️ **Paramètres** | Pochette audio (auto-extraction ou non, résolution), nombre de miniatures dans la timeline, nombre d'encodeurs ffmpeg simultanés — sans éditer le code |
 
 Les vidéos vont dans `downloads/`, les audios dans `audio/`. Aucun fichier
@@ -55,6 +56,24 @@ section 4.1) — utile pour pointer vers un disque externe ou un NAS.
 docker compose down              # arrêter
 docker compose up -d --build     # reconstruire après une modif (ou pour mettre à jour yt-dlp)
 ```
+
+### PWA et https (optionnel)
+
+Pour installer l'app sur un smartphone, l'adresse doit être en **https**
+(sauf `localhost`). Un service **Caddy** est fourni, désactivé par défaut,
+qui obtient et renouvelle seul le certificat Let's Encrypt :
+
+```bash
+# .env : DOMAIN=video.monsite.com  (domaine pointant vers la machine,
+# ports 80 et 443 ouverts)
+docker compose --profile https up -d
+```
+
+Puis, sur le téléphone : Android → menu ⋮ « Installer l'application » ;
+iPhone → Safari, Partager, « Sur l'écran d'accueil ». Sans domaine,
+Tailscale ou Cloudflare Tunnel donnent aussi une adresse https.
+Si l'app est exposée sur Internet, activez le `basicauth` commenté dans
+le `Caddyfile` (voir `HANDOFF.md`, section « PWA et https »).
 
 ### Sans Docker
 
@@ -111,9 +130,13 @@ static/                 SPA Vue 3 + Vue Router + Bootstrap 5
   index.html            coquille (sidebar, thème sombre/clair)
   app.js                composants et vues
   app.css               design system (tokens, responsive)
+  manifest.webmanifest  manifeste PWA (nom, icônes, plein écran)
+  sw.js                 service worker (cache de l'interface, jamais /api)
+  icons/                icônes PWA (192, 512, maskable, apple-touch)
 scrap_movie.py          version CLI à menu
 Dockerfile              python:3.13-slim + ffmpeg + fonts-dejavu
-docker-compose.yml      port 5000, volumes downloads/ et audio/
+docker-compose.yml      port 5000, volumes downloads/ et audio/, Caddy (profil https)
+Caddyfile               reverse proxy https (service caddy)
 ```
 
 ## Limites à connaître
@@ -122,4 +145,7 @@ docker-compose.yml      port 5000, volumes downloads/ et audio/
 - **yt-dlp** vieillit vite : si les téléchargements YouTube échouent,
   mettez à jour (`pip install -U yt-dlp` ou `docker compose build --no-cache`).
 - **Titre incrusté** : la police (DejaVu) ne rend pas les émojis.
-- L'app est prévue pour un usage **local** (pas d'authentification).
+- L'app est prévue pour un usage **local** (pas d'authentification) : si vous
+  l'exposez sur Internet (PWA en https), protégez-la par mot de passe.
+- **PWA** : hors-ligne, seule l'interface s'affiche ; aucun traitement
+  n'est possible sans le serveur.

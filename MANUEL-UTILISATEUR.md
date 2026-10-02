@@ -25,6 +25,7 @@ suffixé `_1`, `_2`, …).
 11. [Bibliothèque](#11-bibliothèque)
 12. [Recherche, numéro, date — dans toutes les listes](#12-recherche-numéro-date--dans-toutes-les-listes)
 13. [Suivi de progression et file d'attente](#13-suivi-de-progression-et-file-dattente)
+14. [Installer l'app sur smartphone (PWA)](#14-installer-lapp-sur-smartphone-pwa)
 
 ---
 
@@ -193,3 +194,33 @@ suivantes patientent avec le statut **« En file d'attente »** — elles
 démarrent automatiquement dès qu'un emplacement se libère (2 encodages
 simultanés par défaut). Les téléchargements YouTube et enregistrements
 radio ne sont pas concernés par cette limite.
+
+## 14. Installer l'app sur smartphone (PWA)
+
+VideoCoder Studio peut s'installer comme une vraie application : une icône
+sur l'écran d'accueil, un lancement en plein écran (sans barre de
+navigateur) et un démarrage rapide.
+
+**Condition : l'adresse doit être en `https://`** (ou `localhost`). Avec une
+adresse du type `http://192.168.1.20:5000`, le téléphone ne propose pas
+l'installation — l'app reste utilisable dans le navigateur. Pour activer
+https, voir `MANUEL-INSTALLATION-DOCKER.md` et `HANDOFF.md` (section « PWA
+et https »).
+
+**Android (Chrome)**
+1. Ouvrir l'adresse https de l'app dans Chrome.
+2. Menu **⋮** puis **Installer l'application** (ou **Ajouter à l'écran
+   d'accueil**).
+
+**iPhone / iPad (Safari uniquement)**
+1. Ouvrir l'adresse https de l'app dans Safari.
+2. Bouton **Partager** puis **Sur l'écran d'accueil**.
+
+**Bon à savoir**
+- L'app reste un client de votre serveur : sans connexion, l'interface
+  s'ouvre mais aucun traitement n'est possible (conversion, téléchargement,
+  radio…).
+- Si l'app est accessible depuis Internet, protégez-la par un mot de passe
+  (voir `Caddyfile`) : elle n'a pas d'authentification propre.
+- Après une mise à jour de l'app, fermez et rouvrez-la pour charger la
+  nouvelle version.

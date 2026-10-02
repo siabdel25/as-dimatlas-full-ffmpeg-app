@@ -17,3 +17,23 @@ services:
       # YouTube répond « Sign in to confirm you're not a bot ».
       - ${COOKIES_DIR:-./cookies}:/app/cookies:ro
     restart: unless-stopped
+
+  # https pour la PWA (optionnel) : docker compose --profile https up -d
+  # Nécessite DOMAIN dans .env et les ports 80/443 ouverts vers cette machine.
+  caddy:
+    image: caddy:2
+    profiles: ["https"]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on:
+      - videocoder
+    restart: unless-stopped
+
+volumes:
+  caddy_data:

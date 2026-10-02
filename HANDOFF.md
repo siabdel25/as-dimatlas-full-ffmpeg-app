@@ -1,7 +1,7 @@
 # HANDOFF — VideoCoder Studio
 
 État du projet pour reprise en main (par vous, ou par une future session
-d'assistant). Écrit le 2026-07-05, mis à jour le 2026-07-13.
+d'assistant). Écrit le 2026-07-05, mis à jour le 2026-10-02.
 
 ## 1. État du dépôt
 
@@ -66,6 +66,12 @@ d'assistant). Écrit le 2026-07-05, mis à jour le 2026-07-13.
     Medley (rendu final). Exclu de la Conversion réseaux sociaux (calcul de
     taille <16 Mo) et de l'aperçu rapide du Medley (reste rapide par
     construction).
+
+13. **PWA installable + https** (non commité au moment de l'écriture) :
+    l'app s'installe sur Android (Chrome) et iPhone (Safari → « Sur l'écran
+    d'accueil »). Fichiers dans `static/` : `manifest.webmanifest`, `sw.js`,
+    `icons/` (192/512, maskable, apple-touch-icon), balises dans
+    `index.html`. Voir section 4 « PWA » pour les pièges.
 
 Documentation utilisateur : voir **`MANUEL-UTILISATEUR.md`** (à la racine).
 Installation Docker détaillée (Windows/Linux/macOS) : voir
@@ -143,6 +149,31 @@ d'encodage → `lancer_ffmpeg()` publie la progression → `GET
     dans le calcul du budget `<16 Mo` — le changer sans recalculer ce
     budget romprait la garantie de taille) et de l'aperçu Medley (reste en
     dur, rapide par construction).
+
+### PWA et https
+
+- **https obligatoire** pour l'installation (sauf `localhost`). Sur
+  `http://192.168.x.x:5000`, Android ne propose pas l'installation.
+- **Caddy en option** : `Caddyfile` + service `caddy` du `docker-compose.yml`
+  sous le profil `https`, donc `docker compose up -d` reste inchangé. Pour
+  l'activer : `DOMAIN=video.monsite.com` dans `.env`, ports 80/443 ouverts,
+  puis `docker compose --profile https up -d`. Certificat Let's Encrypt
+  géré par Caddy (volume `caddy_data`). Sans domaine : Tailscale (https
+  privé) ou Cloudflare Tunnel.
+- **Aucune authentification dans l'app** : exposée sur Internet, n'importe
+  qui peut lancer téléchargements et encodages. Un bloc `basicauth` est
+  prévu, commenté, dans le `Caddyfile` (hash via
+  `caddy hash-password`). À activer avant toute exposition publique.
+- **Service worker (`sw.js`)** : ne met **jamais** `/api/*` en cache (tâches,
+  médias, radio, flux Range). Même origine : réseau d'abord, repli cache ;
+  CDN (Vue, Bootstrap…) : cache d'abord. Hors-ligne, seule l'interface
+  s'affiche, aucun traitement n'est possible. Pour forcer le rafraîchissement
+  du cache, changer `VERSION` dans `sw.js`.
+- **Non testé** : Flask n'était pas installé en local (tout tourne sous
+  Docker), donc ni l'installation sur téléphone, ni le `Content-Type` de
+  `manifest.webmanifest` n'ont été vérifiés. Si l'installation n'est pas
+  proposée, contrôler d'abord l'onglet Application des DevTools (Manifest,
+  Service Workers).
 
 ## 5. Prochaine itération
 
