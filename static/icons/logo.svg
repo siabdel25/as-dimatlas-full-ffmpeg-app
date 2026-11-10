@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 580" width="512" height="580" role="img" aria-label="SDK WI — Siabdel — Entreprise Dimatlas.com">
+  <defs>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f6c15a"/><stop offset="1" stop-color="#d98f22"/></linearGradient>
+  </defs>
+  <!-- médaillon -->
+  <g transform="translate(26 92) scale(.9)">
+  <defs>
+    <clipPath id="c"><circle cx="256" cy="256" r="248"/></clipPath>
+    <radialGradient id="bg" cx="50%" cy="42%" r="62%"><stop offset="0" stop-color="#3a2a12"/><stop offset=".55" stop-color="#1b1a1e"/><stop offset="1" stop-color="#131417"/></radialGradient>
+    <linearGradient id="skin" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7d97ff"/><stop offset=".6" stop-color="#4a63e0"/><stop offset="1" stop-color="#3347b8"/></linearGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2a3794"/><stop offset="1" stop-color="#171d52"/></linearGradient>
+    <filter id="glow" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <g clip-path="url(#c)">
+    <rect width="512" height="512" fill="url(#bg)"/>
+    <!-- halo -->
+    <circle cx="256" cy="236" r="190" fill="none" stroke="#e8a33d" stroke-opacity=".16" stroke-width="2"/>
+    <circle cx="256" cy="236" r="225" fill="none" stroke="#e8a33d" stroke-opacity=".08" stroke-width="2"/>
+    <!-- épaules -->
+    <path d="M60 520 C70 420 160 388 256 388 C352 388 442 420 452 520 Z" fill="url(#body)"/>
+    <g fill="#8fe9ff" filter="url(#glow)" opacity=".9">
+      <circle cx="150" cy="450" r="3.2"/><circle cx="176" cy="432" r="2.6"/><circle cx="200" cy="448" r="3"/><circle cx="224" cy="430" r="2.4"/>
+      <circle cx="362" cy="450" r="3.2"/><circle cx="336" cy="432" r="2.6"/><circle cx="312" cy="448" r="3"/><circle cx="288" cy="430" r="2.4"/>
+    </g>
+    <!-- cou -->
+    <path d="M220 330 L220 396 Q256 418 292 396 L292 330 Z" fill="#3a50c9"/>
+    <path d="M220 372 Q256 392 292 372 L292 396 Q256 418 220 396 Z" fill="#2b3da6"/>
+    <!-- oreilles -->
+    <ellipse cx="160" cy="238" rx="15" ry="28" fill="#4a63e0"/><ellipse cx="352" cy="238" rx="15" ry="28" fill="#4a63e0"/>
+    <!-- visage -->
+    <path d="M160 222 C160 142 206 104 256 104 C306 104 352 142 352 222 C352 292 314 352 256 358 C198 352 160 292 160 222 Z" fill="url(#skin)"/>
+    <path d="M176 200 C180 150 214 122 256 122" fill="none" stroke="#b9c8ff" stroke-opacity=".35" stroke-width="8" stroke-linecap="round"/>
+    <!-- casque -->
+    <path d="M148 222 C146 122 198 72 256 72 C314 72 366 122 364 222" fill="none" stroke="#1c1e23" stroke-width="16" stroke-linecap="round"/>
+    <path d="M148 222 C146 122 198 72 256 72 C314 72 366 122 364 222" fill="none" stroke="#e8a33d" stroke-width="3" stroke-linecap="round" opacity=".85"/>
+    <rect x="132" y="206" width="30" height="70" rx="15" fill="#1c1e23"/><rect x="350" y="206" width="30" height="70" rx="15" fill="#1c1e23"/>
+    <rect x="139" y="226" width="16" height="30" rx="8" fill="#e8a33d" filter="url(#glow)"/><rect x="357" y="226" width="16" height="30" rx="8" fill="#e8a33d" filter="url(#glow)"/>
+    <path d="M142 272 C150 316 186 336 224 338" fill="none" stroke="#1c1e23" stroke-width="6" stroke-linecap="round"/>
+    <circle cx="228" cy="338" r="9" fill="#1c1e23"/><circle cx="228" cy="338" r="4" fill="#e8a33d" filter="url(#glow)"/>
+    <!-- sourcils / yeux -->
+    <path d="M196 214 Q222 200 246 212" fill="none" stroke="#25328f" stroke-width="5" stroke-linecap="round"/>
+    <path d="M266 212 Q290 200 316 214" fill="none" stroke="#25328f" stroke-width="5" stroke-linecap="round"/>
+    <g filter="url(#glow)">
+      <path d="M200 238 Q222 220 246 238 Q222 252 200 238 Z" fill="#e8a33d"/>
+      <path d="M266 238 Q290 220 312 238 Q290 252 266 238 Z" fill="#e8a33d"/>
+    </g>
+    <circle cx="223" cy="237" r="7" fill="#16130c"/><circle cx="289" cy="237" r="7" fill="#16130c"/>
+    <circle cx="226" cy="234" r="2.2" fill="#fff"/><circle cx="292" cy="234" r="2.2" fill="#fff"/>
+    <!-- nez, bouche -->
+    <path d="M256 250 L249 288 Q256 295 263 288" fill="none" stroke="#2b3fae" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M234 318 Q256 332 278 318" fill="none" stroke="#1d2766" stroke-width="5" stroke-linecap="round"/>
+    <!-- marque frontale : ‹ · › -->
+    <g fill="none" stroke="#e8a33d" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)">
+      <path d="M241 128 L226 146 L241 164"/><path d="M271 128 L286 146 L271 164"/>
+    </g>
+    <circle cx="256" cy="146" r="4.5" fill="#e8a33d" filter="url(#glow)"/>
+    <!-- points bioluminescents -->
+    <g fill="#8fe9ff" filter="url(#glow)">
+      <circle cx="190" cy="270" r="3.4"/><circle cx="204" cy="282" r="2.6"/><circle cx="184" cy="288" r="2.4"/><circle cx="214" cy="296" r="2.2"/><circle cx="196" cy="304" r="2"/>
+      <circle cx="322" cy="270" r="3.4"/><circle cx="308" cy="282" r="2.6"/><circle cx="328" cy="288" r="2.4"/><circle cx="298" cy="296" r="2.2"/><circle cx="316" cy="304" r="2"/>
+      <circle cx="214" cy="178" r="2.4"/><circle cx="298" cy="178" r="2.4"/><circle cx="196" cy="196" r="2"/><circle cx="316" cy="196" r="2"/>
+    </g>
+  </g>
+  <circle cx="256" cy="256" r="244" fill="none" stroke="#c1272d" stroke-width="16"/>
+  <circle cx="256" cy="256" r="233" fill="none" stroke="#006233" stroke-width="4"/>
+</g>
+  <!-- couronne -->
+  <g stroke="#16130c" stroke-width="5" stroke-linejoin="round">
+    <path d="M190 104 L176 46 L220 76 L256 30 L292 76 L336 46 L322 104 Z" fill="url(#gold)"/>
+    <rect x="186" y="96" width="140" height="26" rx="8" fill="#c1272d"/>
+  </g>
+  <g stroke="#16130c" stroke-width="3">
+    <circle cx="176" cy="44" r="9" fill="#006233"/><circle cx="256" cy="28" r="10" fill="#c1272d"/><circle cx="336" cy="44" r="9" fill="#006233"/>
+  </g>
+  <g fill="#f6c15a"><circle cx="214" cy="109" r="5"/><circle cx="256" cy="109" r="5"/><circle cx="298" cy="109" r="5"/></g>
+  <!-- étoile : pastille rouge + pentagramme vert -->
+  <g transform="translate(420 478)">
+    <circle r="62" fill="#131417"/>
+    <circle r="54" fill="#c1272d"/>
+    <path d="M0.0 -34.0 L21.2 31.1 L-34.2 -9.1 L34.2 -9.1 L-21.2 31.1 Z" fill="none" stroke="#006233" stroke-width="6.5" stroke-linejoin="miter"/>
+  </g>
+</svg>

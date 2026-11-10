@@ -1,8 +1,8 @@
 // Service worker : coquille de l'app en cache (démarrage instantané + page hors-ligne).
 // Jamais de cache pour /api (tâches, médias, radio) : toujours le réseau.
-const VERSION = "v1";
+const VERSION = "v2";
 const CACHE = `videocoder-${VERSION}`;
-const SHELL = ["/", "/app.css", "/app.js", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
+const SHELL = ["/", "/app.css", "/app.js", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png", "/icons/logo.svg"];
 
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));

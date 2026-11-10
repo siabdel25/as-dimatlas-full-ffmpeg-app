@@ -34,3 +34,4 @@ config/
 .claude/settings.local.json
 cookies/
 cookies.txt
+brag-output*/
